@@ -17,7 +17,9 @@ static bool test_types_and_epoch(void)
     CHECK(state.command_epoch == 1);
     CHECK(state.axes[GS232B_AXIS_AZIMUTH].axis == GS232B_AXIS_AZIMUTH);
     CHECK(state.axes[GS232B_AXIS_ELEVATION].axis == GS232B_AXIS_ELEVATION);
+    CHECK(state.axes[GS232B_AXIS_AZIMUTH].minimum_mdeg == 0);
     CHECK(state.axes[GS232B_AXIS_AZIMUTH].maximum_mdeg == 450000);
+    CHECK(state.axes[GS232B_AXIS_ELEVATION].minimum_mdeg == 0);
     CHECK(state.axes[GS232B_AXIS_ELEVATION].maximum_mdeg == 180000);
     CHECK(!state.output.known);
     CHECK(state.output.requested.azimuth == GS232B_AZ_STOP);

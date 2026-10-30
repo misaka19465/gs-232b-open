@@ -1,4 +1,5 @@
 #include "gs232b/types.h"
+#include "gs232b/coordinates.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -86,7 +87,9 @@ void gs232b_state_snapshot_init(gs232b_state_snapshot_t *snapshot)
         snapshot->axes[axis].axis = (gs232b_axis_id_t)axis;
         snapshot->axes[axis].sample_error = GS232B_ERROR_NOT_READY;
     }
-    snapshot->axes[GS232B_AXIS_AZIMUTH].maximum_mdeg = 450000;
-    snapshot->axes[GS232B_AXIS_ELEVATION].maximum_mdeg = 180000;
+    snapshot->axes[GS232B_AXIS_AZIMUTH].minimum_mdeg = GS232B_AZIMUTH_MIN_MDEG;
+    snapshot->axes[GS232B_AXIS_AZIMUTH].maximum_mdeg = GS232B_AZIMUTH_MAX_MDEG;
+    snapshot->axes[GS232B_AXIS_ELEVATION].minimum_mdeg = GS232B_ELEVATION_MIN_MDEG;
+    snapshot->axes[GS232B_AXIS_ELEVATION].maximum_mdeg = GS232B_ELEVATION_MAX_MDEG;
     gs232b_output_snapshot_init(&snapshot->output);
 }

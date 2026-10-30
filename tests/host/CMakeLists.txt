@@ -77,3 +77,20 @@ endif()
 
 add_test(NAME response_encoder COMMAND response_encoder_tests)
 set_tests_properties(response_encoder PROPERTIES TIMEOUT 5)
+
+add_executable(coordinates_tests
+    coordinates_tests.c
+    ../../src/core/coordinates.c
+)
+target_include_directories(coordinates_tests PRIVATE ../../include)
+set_target_properties(coordinates_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(coordinates_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_test(NAME coordinates COMMAND coordinates_tests)
+set_tests_properties(coordinates PROPERTIES TIMEOUT 5)

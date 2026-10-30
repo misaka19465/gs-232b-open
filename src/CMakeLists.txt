@@ -1,2 +1,1 @@
-# Intentionally empty component. Register source files here when implementation begins.
-idf_component_register(INCLUDE_DIRS ".")
+idf_component_register(SRCS "app_main.c" INCLUDE_DIRS ".")

@@ -145,7 +145,8 @@ gs232b_error_t gs232b_position_from_feedback(gs232b_axis_id_t axis,
     if (!axis_valid(axis)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
-    if (zero_uv >= GS232B_FEEDBACK_FULL_SCALE_UV) {
+    if (zero_uv >= GS232B_FEEDBACK_FULL_SCALE_UV ||
+        GS232B_FEEDBACK_FULL_SCALE_UV - zero_uv < GS232B_FEEDBACK_MIN_SPAN_UV) {
         return GS232B_ERROR_NOT_READY;
     }
     if (adc_uv < zero_uv || adc_uv > GS232B_FEEDBACK_FULL_SCALE_UV) {

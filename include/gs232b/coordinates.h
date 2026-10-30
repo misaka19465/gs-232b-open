@@ -12,6 +12,8 @@
 #define GS232B_ELEVATION_MAX_MDEG INT32_C(180000)
 /* NOTE: 按 4.5V×3/(4.7kΩ+3kΩ) 四舍五入到整数微伏。 */
 #define GS232B_FEEDBACK_FULL_SCALE_UV UINT32_C(1753247)
+/* NOTE: 拒绝放大噪声后仍不足 500mV 的有效反馈跨度。 */
+#define GS232B_FEEDBACK_MIN_SPAN_UV UINT32_C(500000)
 
 typedef enum {
     GS232B_AZIMUTH_DISPLAY_P36 = 0,

@@ -94,3 +94,27 @@ endif()
 
 add_test(NAME coordinates COMMAND coordinates_tests)
 set_tests_properties(coordinates PROPERTIES TIMEOUT 5)
+
+add_executable(feedback_tests
+    feedback_tests.c
+    ../fakes/fakes.c
+    ../../src/core/types.c
+    ../../src/core/ports.c
+    ../../src/core/coordinates.c
+    ../../src/core/feedback.c
+)
+target_include_directories(feedback_tests PRIVATE
+    ../../include
+    ../fakes
+)
+set_target_properties(feedback_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(feedback_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_test(NAME feedback COMMAND feedback_tests)
+set_tests_properties(feedback PROPERTIES TIMEOUT 5)

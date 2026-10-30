@@ -43,3 +43,20 @@ endif()
 
 add_test(NAME core_contracts COMMAND core_contract_tests)
 set_tests_properties(core_contracts PROPERTIES TIMEOUT 5)
+
+add_executable(line_parser_tests
+    line_parser_tests.c
+    ../../src/core/line_parser.c
+)
+target_include_directories(line_parser_tests PRIVATE ../../include)
+set_target_properties(line_parser_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(line_parser_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_test(NAME line_parser COMMAND line_parser_tests)
+set_tests_properties(line_parser PROPERTIES TIMEOUT 5)

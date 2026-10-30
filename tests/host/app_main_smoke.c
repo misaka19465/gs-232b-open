@@ -1,4 +1,4 @@
-// Link and run the real baseline entry with only the native C toolchain.
+// NOTE: 仅使用本机 C 工具链链接并运行实际基线入口。
 extern void app_main(void);
 
 int main(void)

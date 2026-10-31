@@ -102,6 +102,7 @@ add_executable(feedback_tests
     ../../src/core/ports.c
     ../../src/core/coordinates.c
     ../../src/core/feedback.c
+    ../../src/core/persistence.c
 )
 target_include_directories(feedback_tests PRIVATE
     ../../include
@@ -118,3 +119,28 @@ endif()
 
 add_test(NAME feedback COMMAND feedback_tests)
 set_tests_properties(feedback PROPERTIES TIMEOUT 5)
+
+add_executable(persistence_tests
+    persistence_tests.c
+    ../fakes/fakes.c
+    ../../src/core/types.c
+    ../../src/core/ports.c
+    ../../src/core/coordinates.c
+    ../../src/core/feedback.c
+    ../../src/core/persistence.c
+)
+target_include_directories(persistence_tests PRIVATE
+    ../../include
+    ../fakes
+)
+set_target_properties(persistence_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(persistence_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_test(NAME persistence COMMAND persistence_tests)
+set_tests_properties(persistence PROPERTIES TIMEOUT 5)

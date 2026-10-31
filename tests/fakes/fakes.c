@@ -24,7 +24,7 @@ static gs232b_error_t consume_failure(gs232b_fake_failure_t *failure)
 gs232b_error_t gs232b_fake_fail_next(gs232b_fake_failure_t *failure,
                                     gs232b_error_t error, size_t count)
 {
-    if (failure == NULL || error <= GS232B_OK || error > GS232B_ERROR_CLOSED || count == 0) {
+    if (failure == NULL || error <= GS232B_OK || error > GS232B_ERROR_CORRUPT || count == 0) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     failure->error = error;
@@ -197,6 +197,36 @@ static gs232b_error_t store_load(void *ctx, gs232b_store_domain_t domain,
     return GS232B_OK;
 }
 
+static gs232b_error_t store_load_previous(void *ctx, gs232b_store_domain_t domain,
+                                         uint8_t *buffer, size_t capacity, size_t *size)
+{
+    gs232b_fake_store_t *fake = ctx;
+    if (size == NULL) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    *size = 0;
+    if (fake == NULL || !domain_valid(domain) || (capacity != 0 && buffer == NULL)) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    gs232b_error_t error = consume_failure(
+        &fake->failures[domain][GS232B_FAKE_STORE_LOAD]);
+    if (error != GS232B_OK) {
+        return error;
+    }
+    const gs232b_fake_store_record_t *record = &fake->records[domain];
+    if (!record->previous_present) {
+        return GS232B_ERROR_NOT_FOUND;
+    }
+    *size = record->previous_size;
+    if (record->previous_size > capacity) {
+        return GS232B_ERROR_BUFFER_TOO_SMALL;
+    }
+    if (record->previous_size != 0) {
+        memmove(buffer, record->previous_bytes, record->previous_size);
+    }
+    return GS232B_OK;
+}
+
 static gs232b_error_t store_save(void *ctx, gs232b_store_domain_t domain,
                                 const uint8_t *bytes, size_t size)
 {
@@ -212,11 +242,30 @@ static gs232b_error_t store_save(void *ctx, gs232b_store_domain_t domain,
         return error;
     }
     gs232b_fake_store_record_t *record = &fake->records[domain];
+    if (record->present) {
+        memmove(record->previous_bytes, record->bytes, record->size);
+        record->previous_size = record->size;
+        record->previous_present = true;
+    }
     if (size != 0) {
         memmove(record->bytes, bytes, size);
     }
     record->size = size;
     record->present = true;
+    error = consume_failure(&fake->failures[domain][GS232B_FAKE_STORE_INTERRUPT]);
+    if (error != GS232B_OK) {
+        /* NOTE: 未激活槽可能已写入，但选择标记未切换；恢复活动镜像，确保
+         * 调用方看到的仍是上一个完整版本。 */
+        if (record->previous_present) {
+            memmove(record->bytes, record->previous_bytes, record->previous_size);
+            record->size = record->previous_size;
+            record->present = true;
+        } else {
+            record->size = 0;
+            record->present = false;
+        }
+        return error;
+    }
     return GS232B_OK;
 }
 
@@ -244,6 +293,7 @@ void gs232b_fake_store_init(gs232b_fake_store_t *fake)
 gs232b_store_t gs232b_fake_store_port(gs232b_fake_store_t *fake)
 {
     return (gs232b_store_t){.ctx = fake, .load = store_load,
+                           .load_previous = store_load_previous,
                            .save = store_save, .erase = store_erase};
 }
 

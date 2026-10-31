@@ -1,11 +1,7 @@
 #include "gs232b/feedback.h"
+#include "gs232b/persistence.h"
 
 #include <string.h>
-
-#define GS232B_ZERO_RECORD_MAGIC_0 UINT8_C(0x47)
-#define GS232B_ZERO_RECORD_MAGIC_1 UINT8_C(0x5a)
-#define GS232B_ZERO_RECORD_VERSION UINT8_C(1)
-#define GS232B_ZERO_RECORD_PAYLOAD_SIZE 8U
 
 static bool axis_valid(gs232b_axis_id_t axis)
 {
@@ -17,18 +13,18 @@ static gs232b_store_domain_t zero_domain(gs232b_axis_id_t axis)
     return axis == GS232B_AXIS_AZIMUTH ? GS232B_STORE_ZERO_AZ : GS232B_STORE_ZERO_EL;
 }
 
-static uint16_t crc16(const uint8_t *bytes, size_t size)
+static bool zero_record_valid(const gs232b_persisted_record_t *record)
 {
-    uint16_t crc = UINT16_C(0xffff);
-    for (size_t i = 0; i < size; ++i) {
-        crc ^= (uint16_t)bytes[i] << 8;
-        for (unsigned bit = 0; bit < 8; ++bit) {
-            crc = (crc & UINT16_C(0x8000)) != 0
-                      ? (uint16_t)((crc << 1) ^ UINT16_C(0x1021))
-                      : (uint16_t)(crc << 1);
-        }
+    if (record == NULL || record->schema_version != GS232B_FEEDBACK_ZERO_SCHEMA_VERSION ||
+        record->payload_size != sizeof(uint32_t)) {
+        return false;
     }
-    return crc;
+    const uint32_t zero_uv = (uint32_t)record->payload[0] |
+                             ((uint32_t)record->payload[1] << 8) |
+                             ((uint32_t)record->payload[2] << 16) |
+                             ((uint32_t)record->payload[3] << 24);
+    return zero_uv <= GS232B_FEEDBACK_FULL_SCALE_UV &&
+           GS232B_FEEDBACK_FULL_SCALE_UV - zero_uv >= GS232B_FEEDBACK_MIN_SPAN_UV;
 }
 
 static bool fresh(gs232b_time_us_t acquired_at_us, gs232b_time_us_t now_us)
@@ -163,22 +159,37 @@ gs232b_error_t gs232b_feedback_zero_save(const gs232b_store_t *store,
         return error;
     }
 
-    uint8_t record[GS232B_FEEDBACK_ZERO_RECORD_SIZE] = {
-        GS232B_ZERO_RECORD_MAGIC_0,
-        GS232B_ZERO_RECORD_MAGIC_1,
-        GS232B_ZERO_RECORD_VERSION,
-        (uint8_t)axis,
+    uint64_t expected_revision = 0;
+    gs232b_persisted_record_t current;
+    error = gs232b_persistence_load_schema(store, zero_domain(axis),
+                                            GS232B_FEEDBACK_ZERO_SCHEMA_VERSION,
+                                            &current);
+    if (error == GS232B_OK) {
+        if (!zero_record_valid(&current)) {
+            gs232b_persisted_record_t previous;
+            error = gs232b_persistence_load_previous(store, zero_domain(axis), &previous);
+            if (error != GS232B_OK || !zero_record_valid(&previous)) {
+                return GS232B_ERROR_HARDWARE_FAULT;
+            }
+            current = previous;
+        }
+        expected_revision = current.revision;
+    } else if (error != GS232B_ERROR_NOT_FOUND && error != GS232B_ERROR_NOT_READY) {
+        return (error == GS232B_ERROR_CORRUPT ||
+                error == GS232B_ERROR_BUFFER_TOO_SMALL) ? GS232B_ERROR_HARDWARE_FAULT : error;
+    }
+
+    uint8_t payload[sizeof(uint32_t)] = {
         (uint8_t)(reading->adc_uv & UINT32_C(0xff)),
         (uint8_t)((reading->adc_uv >> 8) & UINT32_C(0xff)),
         (uint8_t)((reading->adc_uv >> 16) & UINT32_C(0xff)),
-        (uint8_t)((reading->adc_uv >> 24) & UINT32_C(0xff)),
-        0,
-        0
+        (uint8_t)((reading->adc_uv >> 24) & UINT32_C(0xff))
     };
-    const uint16_t checksum = crc16(record, GS232B_ZERO_RECORD_PAYLOAD_SIZE);
-    record[8] = (uint8_t)(checksum & UINT16_C(0xff));
-    record[9] = (uint8_t)(checksum >> 8);
-    return gs232b_store_save(store, zero_domain(axis), record, sizeof(record));
+    uint64_t new_revision = 0;
+    error = gs232b_persistence_commit(store, zero_domain(axis), expected_revision,
+                                       GS232B_FEEDBACK_ZERO_SCHEMA_VERSION, payload,
+                                       sizeof(payload), &new_revision);
+    return error;
 }
 
 gs232b_error_t gs232b_feedback_zero_load(const gs232b_store_t *store,
@@ -193,28 +204,27 @@ gs232b_error_t gs232b_feedback_zero_load(const gs232b_store_t *store,
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
 
-    uint8_t record[GS232B_FEEDBACK_ZERO_RECORD_SIZE];
-    size_t size = 0;
-    gs232b_error_t error = gs232b_store_load(store, zero_domain(axis), record,
-                                              sizeof(record), &size);
-    if (error == GS232B_ERROR_BUFFER_TOO_SMALL) {
-        return GS232B_ERROR_HARDWARE_FAULT;
-    }
+    gs232b_persisted_record_t record;
+    gs232b_error_t error = gs232b_persistence_load_schema(
+        store, zero_domain(axis), GS232B_FEEDBACK_ZERO_SCHEMA_VERSION, &record);
     if (error != GS232B_OK) {
-        return error == GS232B_ERROR_NOT_FOUND ? GS232B_ERROR_NOT_READY : error;
+        return error == GS232B_ERROR_NOT_FOUND ? GS232B_ERROR_NOT_READY :
+               ((error == GS232B_ERROR_CORRUPT ||
+                 error == GS232B_ERROR_BUFFER_TOO_SMALL) ?
+                    GS232B_ERROR_HARDWARE_FAULT : error);
     }
-    if (size != sizeof(record) || record[0] != GS232B_ZERO_RECORD_MAGIC_0 ||
-        record[1] != GS232B_ZERO_RECORD_MAGIC_1 ||
-        record[2] != GS232B_ZERO_RECORD_VERSION || record[3] != (uint8_t)axis ||
-        crc16(record, GS232B_ZERO_RECORD_PAYLOAD_SIZE) !=
-            (uint16_t)((uint16_t)record[8] | ((uint16_t)record[9] << 8))) {
-        return GS232B_ERROR_HARDWARE_FAULT;
+    if (!zero_record_valid(&record)) {
+        gs232b_persisted_record_t previous;
+        error = gs232b_persistence_load_previous(store, zero_domain(axis), &previous);
+        if (error != GS232B_OK || !zero_record_valid(&previous)) {
+            return GS232B_ERROR_HARDWARE_FAULT;
+        }
+        record = previous;
     }
-
-    const uint32_t candidate = (uint32_t)record[4] |
-                               ((uint32_t)record[5] << 8) |
-                               ((uint32_t)record[6] << 16) |
-                               ((uint32_t)record[7] << 24);
+    const uint32_t candidate = (uint32_t)record.payload[0] |
+                               ((uint32_t)record.payload[1] << 8) |
+                               ((uint32_t)record.payload[2] << 16) |
+                               ((uint32_t)record.payload[3] << 24);
     if (candidate > GS232B_FEEDBACK_FULL_SCALE_UV ||
         GS232B_FEEDBACK_FULL_SCALE_UV - candidate < GS232B_FEEDBACK_MIN_SPAN_UV) {
         return GS232B_ERROR_HARDWARE_FAULT;

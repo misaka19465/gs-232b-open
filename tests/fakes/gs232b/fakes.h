@@ -71,6 +71,8 @@ typedef enum {
     GS232B_FAKE_STORE_LOAD = 0,
     GS232B_FAKE_STORE_SAVE,
     GS232B_FAKE_STORE_ERASE,
+    /* NOTE: 模拟候选槽已写入但提交标记未切换；旧活动记录保持可读。 */
+    GS232B_FAKE_STORE_INTERRUPT,
     GS232B_FAKE_STORE_OPERATION_COUNT
 } gs232b_fake_store_operation_t;
 
@@ -78,6 +80,9 @@ typedef struct {
     uint8_t bytes[GS232B_FAKE_STORE_RECORD_CAPACITY];
     size_t size;
     bool present;
+    uint8_t previous_bytes[GS232B_FAKE_STORE_RECORD_CAPACITY];
+    size_t previous_size;
+    bool previous_present;
 } gs232b_fake_store_record_t;
 
 typedef struct {

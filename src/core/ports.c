@@ -73,6 +73,33 @@ gs232b_error_t gs232b_store_save(const gs232b_store_t *store,
     return store->save(store->ctx, domain, record, size);
 }
 
+gs232b_error_t gs232b_store_load_previous(const gs232b_store_t *store,
+                                         gs232b_store_domain_t domain,
+                                         uint8_t *buffer, size_t capacity,
+                                         size_t *size)
+{
+    if (size == NULL) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    *size = 0;
+    if (store == NULL || !domain_valid(domain) ||
+        (capacity != 0 && buffer == NULL)) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    if (store->load_previous == NULL) {
+        return GS232B_ERROR_NOT_FOUND;
+    }
+    gs232b_error_t error = store->load_previous(store->ctx, domain, buffer, capacity, size);
+    if (error != GS232B_OK && error != GS232B_ERROR_BUFFER_TOO_SMALL) {
+        *size = 0;
+    } else if ((error == GS232B_OK && *size > capacity) ||
+               (error == GS232B_ERROR_BUFFER_TOO_SMALL && *size <= capacity)) {
+        *size = 0;
+        return GS232B_ERROR_IO;
+    }
+    return error;
+}
+
 gs232b_error_t gs232b_store_erase(const gs232b_store_t *store,
                                  gs232b_store_domain_t domain)
 {

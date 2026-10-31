@@ -23,6 +23,7 @@ const char *gs232b_error_name(gs232b_error_t error)
     case GS232B_ERROR_BUFFER_TOO_SMALL: return "BUFFER_TOO_SMALL";
     case GS232B_ERROR_STALE_SESSION: return "STALE_SESSION";
     case GS232B_ERROR_CLOSED: return "CLOSED";
+    case GS232B_ERROR_CORRUPT: return "CORRUPT";
     }
     return "UNKNOWN";
 }

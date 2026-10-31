@@ -24,7 +24,8 @@ typedef enum {
     GS232B_ERROR_RESOURCE_EXHAUSTED = 12,
     GS232B_ERROR_BUFFER_TOO_SMALL = 13,
     GS232B_ERROR_STALE_SESSION = 14,
-    GS232B_ERROR_CLOSED = 15
+    GS232B_ERROR_CLOSED = 15,
+    GS232B_ERROR_CORRUPT = 16
 } gs232b_error_t;
 
 const char *gs232b_error_name(gs232b_error_t error);

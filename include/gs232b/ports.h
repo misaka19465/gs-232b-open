@@ -54,11 +54,19 @@ typedef struct {
     gs232b_error_t (*save)(void *ctx, gs232b_store_domain_t domain,
                            const uint8_t *record, size_t size);
     gs232b_error_t (*erase)(void *ctx, gs232b_store_domain_t domain);
+    /* NOTE: 可选的上一完整槽读取。当前槽损坏时由版本化记录层调用；没有
+     * 双槽能力的旧适配器可留空。放在旧字段之后以保持位置初始化兼容。 */
+    gs232b_error_t (*load_previous)(void *ctx, gs232b_store_domain_t domain,
+                                    uint8_t *buffer, size_t capacity, size_t *size);
 } gs232b_store_t;
 
 gs232b_error_t gs232b_store_load(const gs232b_store_t *store,
                                 gs232b_store_domain_t domain,
                                 uint8_t *buffer, size_t capacity, size_t *size);
+gs232b_error_t gs232b_store_load_previous(const gs232b_store_t *store,
+                                         gs232b_store_domain_t domain,
+                                         uint8_t *buffer, size_t capacity,
+                                         size_t *size);
 gs232b_error_t gs232b_store_save(const gs232b_store_t *store,
                                 gs232b_store_domain_t domain,
                                 const uint8_t *record, size_t size);

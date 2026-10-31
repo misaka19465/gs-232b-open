@@ -39,7 +39,9 @@ static bool boot(uart_fixture_t *f)
     gs232b_motion_sim_config(&config);
     CHECK(gs232b_motion_sim_init(&f->sim, &config, 0, WAIT_US) == GS232B_OK);
     gs232b_fake_store_init(&f->store);
-    CHECK(gs232b_esp_uart_open(&f->uart, 0) == GS232B_OK);
+    CHECK(gs232b_esp_uart_open(&f->uart, gs232b_fake_store_port(&f->store)) == GS232B_OK);
+    fake_uart.now_us += (int64_t)GS232B_UART_BAUD_WINDOW_US;
+    CHECK(gs232b_esp_uart_boot_service(&f->uart) == GS232B_OK);
     CHECK(gs232b_dispatcher_init(&f->dispatcher, &f->sim.motion,
         gs232b_fake_store_port(&f->store), gs232b_esp_uart_io(&f->uart),
         f->requests, sizeof(f->requests)) == GS232B_OK);
@@ -275,11 +277,14 @@ static bool test_epoch_barrier_and_idle_is_not_disconnect(void)
 
 static bool test_lifecycle_failure_cleanup(void)
 {
-    for (int stage = 1; stage <= 4; ++stage) {
+    gs232b_fake_store_t fake_store;
+    gs232b_fake_store_init(&fake_store);
+    const gs232b_store_t store = gs232b_fake_store_port(&fake_store);
+    for (int stage = 1; stage <= 5; ++stage) {
         fake_uart_reset();
         gs232b_esp_uart_t uart = {0};
         fake_uart.fail_alloc_at = stage;
-        CHECK(gs232b_esp_uart_open(&uart, 9600) == GS232B_ERROR_RESOURCE_EXHAUSTED);
+        CHECK(gs232b_esp_uart_open(&uart, store) == GS232B_ERROR_RESOURCE_EXHAUSTED);
         CHECK(gs232b_esp_uart_close(&uart) == GS232B_OK);
         CHECK(fake_uart.live_queues == 0 && fake_uart.live_semaphores == 0);
     }
@@ -287,19 +292,21 @@ static bool test_lifecycle_failure_cleanup(void)
         fake_uart_reset();
         gs232b_esp_uart_t uart = {0};
         fake_uart.fail_init_at = stage;
-        CHECK(gs232b_esp_uart_open(&uart, 9600) == GS232B_ERROR_IO);
+        CHECK(gs232b_esp_uart_open(&uart, store) == GS232B_ERROR_IO);
         CHECK(gs232b_esp_uart_close(&uart) == GS232B_OK);
     }
     fake_uart_reset();
     gs232b_esp_uart_t uart = {0};
-    CHECK(gs232b_esp_uart_open(&uart, 115200) == GS232B_ERROR_INVALID_ARGUMENT);
+    CHECK(gs232b_esp_uart_open(&uart, (gs232b_store_t){0}) == GS232B_ERROR_INVALID_ARGUMENT);
     fake_uart.fail_task = true;
-    CHECK(gs232b_esp_uart_open(&uart, 9600) == GS232B_ERROR_RESOURCE_EXHAUSTED);
+    CHECK(gs232b_esp_uart_open(&uart, store) == GS232B_ERROR_RESOURCE_EXHAUSTED);
     fake_uart.fail_task = false;
-    CHECK(gs232b_esp_uart_open(&uart, 1200) == GS232B_OK);
+    uint64_t revision;
+    CHECK(gs232b_uart_baud_commit(&store, 0, 1200, &revision) == GS232B_OK);
+    CHECK(gs232b_esp_uart_open(&uart, store) == GS232B_OK);
     CHECK(fake_uart.config.baud_rate == 1200);
     gs232b_esp_uart_t other = {0};
-    CHECK(gs232b_esp_uart_open(&other, 9600) == GS232B_ERROR_BUSY);
+    CHECK(gs232b_esp_uart_open(&other, store) == GS232B_ERROR_BUSY);
     fake_uart.defer_exit = true;
     CHECK(gs232b_esp_uart_close(&uart) == GS232B_ERROR_TIMEOUT);
     CHECK(fake_uart.installed && uart.rx_task != NULL);

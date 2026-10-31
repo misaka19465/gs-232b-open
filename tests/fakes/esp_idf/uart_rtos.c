@@ -50,6 +50,16 @@ BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t ticks)
     return present ? pdPASS : pdFAIL;
 }
 
+BaseType_t xQueueOverwriteFromISR(QueueHandle_t queue, const void *item, BaseType_t *woken)
+{
+    assert(queue->length == 1 && pthread_mutex_lock(&queue->lock) == 0);
+    memcpy(queue->bytes, item, queue->item_size);
+    queue->count = 1;
+    assert(pthread_mutex_unlock(&queue->lock) == 0);
+    *woken = pdFALSE;
+    return pdPASS;
+}
+
 BaseType_t xQueueReset(QueueHandle_t queue)
 {
     assert(pthread_mutex_lock(&queue->lock) == 0);

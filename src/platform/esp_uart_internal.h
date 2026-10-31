@@ -12,6 +12,13 @@
 
 /** @brief 映射 IDF 错误，保留资源/参数诊断。 */
 gs232b_error_t gs232b_uart_error(esp_err_t error);
+/** @brief 为 GPIO7 建立真实 RMT RX 捕获；失败资源由 close 重试释放。 */
+gs232b_error_t gs232b_uart_capture_open(gs232b_uart_capture_t *capture);
+/** @brief 消费一次已完成的捕获；超过截止时间的结果不得参与识别。 */
+gs232b_error_t gs232b_uart_capture_service(gs232b_uart_capture_t *capture,
+                                          int64_t deadline_us);
+/** @brief 停用并删除 RMT 通道；失败时保留句柄供控制任务重试。 */
+gs232b_error_t gs232b_uart_capture_close(gs232b_uart_capture_t *capture);
 /** @brief 持 RX 锁时合并接收故障并丢弃不再可信的数据；清理失败持续保留故障。 */
 void gs232b_uart_loss_locked(gs232b_esp_uart_t *adapter);
 /** @brief 持 RX 锁时检查完整有界事件队列，先故障后数据。 */

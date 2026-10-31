@@ -1,4 +1,6 @@
 #include "uart_api.h"
+#include "rmt_api.h"
+#include "esp_timer.h"
 #include <assert.h>
 #include <string.h>
 
@@ -10,6 +12,18 @@ void fake_uart_reset(void)
            fake_uart.live_tasks == 0 && !fake_uart.installed);
     memset(&fake_uart, 0, sizeof(fake_uart));
     fake_uart.tx_limit = 128;
+    fake_rmt_reset();
+}
+
+int64_t esp_timer_get_time(void) { return fake_uart.now_us; }
+
+esp_err_t uart_set_baudrate(uart_port_t port, uint32_t baud)
+{
+    assert(port == UART_NUM_1 && fake_uart.installed && !fake_rmt.allocated);
+    if (fake_uart.fail_baud) { return ESP_FAIL; }
+    ++fake_uart.baud_changes;
+    fake_uart.config.baud_rate = (int)baud;
+    return ESP_OK;
 }
 
 bool fake_uart_allocation(void)

@@ -64,6 +64,19 @@ endif()
 add_test(NAME speed_levels COMMAND speed_tests)
 set_tests_properties(speed_levels PROPERTIES TIMEOUT 5)
 
+add_executable(uart_baud_store_tests uart_baud_store_tests.c
+    ../../src/core/uart_baud.c ../../src/core/uart_baud_store.c
+    ../../src/core/persistence.c ../../src/core/ports.c ../../src/core/types.c
+    ../../src/core/coordinates.c ../fakes/fakes.c)
+target_include_directories(uart_baud_store_tests PRIVATE ../../include ../fakes)
+set_target_properties(uart_baud_store_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(uart_baud_store_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME uart_baud_store COMMAND uart_baud_store_tests)
+set_tests_properties(uart_baud_store PROPERTIES TIMEOUT 5)
+
 add_executable(esp_ledc_output_tests
     esp_ledc_output_tests.c ../fakes/esp_idf/ledc_api.c ../fakes/spi_bus.c
     ../../src/platform/esp_ledc.c ../../src/platform/shared_spi.c
@@ -296,7 +309,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              sequence_lifecycle_tests sequence_fault_tests
                              calibration_tests calibration_lifecycle_tests
                              gs_commands_tests gs_sessions_tests gs_calibration_tests
-                             gs_sequences_tests esp_uart_tests transport_fault_tests)
+                             gs_sequences_tests esp_uart_tests esp_uart_boot_tests
+                             esp_uart_capture_tests transport_fault_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -326,9 +340,11 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/gs_replies.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
-    if(motion_test STREQUAL "esp_uart_tests")
+    if(motion_test MATCHES "^esp_uart.*_tests$")
         target_sources(${motion_test} PRIVATE ../../src/platform/esp_uart.c
-            ../../src/platform/esp_uart_rx.c ../fakes/esp_idf/uart_api.c
+            ../../src/platform/esp_uart_rx.c ../../src/platform/esp_uart_boot.c
+            ../../src/platform/esp_uart_capture.c ../../src/core/uart_baud.c
+            ../../src/core/uart_baud_store.c ../fakes/esp_idf/rmt_api.c ../fakes/esp_idf/uart_api.c
             ../fakes/esp_idf/uart_rtos.c)
         target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf ../../src/platform)
         target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM

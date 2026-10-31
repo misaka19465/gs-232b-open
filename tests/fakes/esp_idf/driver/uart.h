@@ -27,6 +27,7 @@ esp_err_t uart_driver_install(uart_port_t port, int rx, int tx, int events,
 esp_err_t uart_driver_delete(uart_port_t port);
 bool uart_is_driver_installed(uart_port_t port);
 esp_err_t uart_param_config(uart_port_t port, const uart_config_t *config);
+esp_err_t uart_set_baudrate(uart_port_t port, uint32_t baud);
 esp_err_t uart_set_pin(uart_port_t port, int tx, int rx, int rts, int cts);
 int uart_read_bytes(uart_port_t port, void *buffer, uint32_t size, TickType_t ticks);
 int uart_tx_chars(uart_port_t port, const char *buffer, uint32_t size);

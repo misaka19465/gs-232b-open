@@ -57,54 +57,13 @@ gs232b_session_io_t gs232b_esp_uart_io(gs232b_esp_uart_t *adapter)
     return (gs232b_session_io_t){.ctx = adapter, .send = send_bytes, .close = close_session};
 }
 
-gs232b_error_t gs232b_esp_uart_open(gs232b_esp_uart_t *adapter, uint32_t baud)
-{
-    if (adapter == NULL || adapter->opened || adapter->driver_installed ||
-        adapter->rx_lock != NULL || adapter->stopped != NULL || adapter->packets != NULL ||
-        adapter->rx_task != NULL) { return GS232B_ERROR_INVALID_ARGUMENT; }
-    if (baud == 0) { baud = GS232B_UART_DEFAULT_BAUD; }
-    if (baud != 1200 && baud != 2400 && baud != 4800 && baud != 9600) {
-        return GS232B_ERROR_INVALID_ARGUMENT;
-    }
-    if (uart_is_driver_installed(UART_NUM_1)) { return GS232B_ERROR_BUSY; }
-    atomic_init(&adapter->enabled, false);
-    atomic_init(&adapter->stopping, false);
-    adapter->rx_lock = xSemaphoreCreateMutex();
-    adapter->stopped = xSemaphoreCreateBinary();
-    adapter->packets = xQueueCreate(GS232B_UART_RX_PACKETS, sizeof(gs232b_uart_packet_t));
-    gs232b_error_t result = GS232B_ERROR_RESOURCE_EXHAUSTED;
-    if (adapter->rx_lock == NULL || adapter->stopped == NULL || adapter->packets == NULL) {
-        goto fail;
-    }
-    esp_err_t error = uart_driver_install(UART_NUM_1, GS232B_UART_RX_RING_BYTES,
-        0, GS232B_UART_EVENTS, &adapter->events, 0);
-    if (error != ESP_OK) { result = gs232b_uart_error(error); goto fail; }
-    adapter->driver_installed = true;
-    const uart_config_t config = {
-        .baud_rate = (int)baud, .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE, .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE, .source_clk = UART_SCLK_DEFAULT
-    };
-    error = uart_param_config(UART_NUM_1, &config);
-    if (error == ESP_OK) {
-        error = uart_set_pin(UART_NUM_1, 6, 7, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    }
-    if (error != ESP_OK) { result = gs232b_uart_error(error); goto fail; }
-    adapter->opened = true;
-    if (xTaskCreate(gs232b_uart_rx_task, "gs_uart_rx", 3072, adapter, 8,
-                    &adapter->rx_task) != pdPASS) { goto fail; }
-    return GS232B_OK;
-fail:
-    (void)gs232b_esp_uart_close(adapter);
-    return result;
-}
-
 gs232b_error_t gs232b_esp_uart_attach(gs232b_esp_uart_t *adapter,
     gs232b_dispatcher_t *dispatcher, uint8_t *line_storage, size_t capacity)
 {
     if (adapter == NULL || !adapter->opened || atomic_load(&adapter->stopping) ||
         dispatcher == NULL || !dispatcher->initialized ||
         gs232b_session_key_valid(adapter->session)) { return GS232B_ERROR_INVALID_ARGUMENT; }
+    if (!adapter->boot.ready) { return GS232B_ERROR_NOT_READY; }
     /* NOTE: 前一会话已交给物理 FIFO 的字节不能撤回；排空前禁止重用通道。 */
     if (uart_wait_tx_done(UART_NUM_1, 0) != ESP_OK) { return GS232B_ERROR_WOULD_BLOCK; }
     adapter->dispatcher = dispatcher;
@@ -230,6 +189,8 @@ gs232b_error_t gs232b_esp_uart_close(gs232b_esp_uart_t *adapter)
     adapter->opened = false;
     adapter->session = (gs232b_session_key_t){0};
     adapter->opening = false;
+    const gs232b_error_t captured = gs232b_uart_capture_close(&adapter->capture);
+    if (captured != GS232B_OK) { return captured; }
     if (adapter->driver_installed) {
         const esp_err_t error = uart_driver_delete(UART_NUM_1);
         if (error != ESP_OK) { return gs232b_uart_error(error); }

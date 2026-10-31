@@ -8,7 +8,9 @@ typedef struct {
     int rx_size, tx_size, event_count;
     int tx_pin, rx_pin, rts_pin, cts_pin;
     bool installed, fail_task, fail_delete, fail_flush, fail_read, fail_inspect, fail_tx;
-    bool tx_busy, defer_exit;
+    bool tx_busy, defer_exit, fail_baud;
+    int64_t now_us;
+    unsigned baud_changes;
     int fail_init_at, init_calls, fail_alloc_at, alloc_calls;
     unsigned live_queues, live_semaphores, live_tasks, rx_reads, tx_calls, flushes;
     unsigned ticks_waited, task_priority, task_stack;

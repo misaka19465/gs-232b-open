@@ -9,6 +9,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT = "esp32-c3-wroom-02u-n4"
+CAPTURE_ENVIRONMENT = "uart-capture-api-check"
 
 
 def run(*command: str) -> None:
@@ -16,9 +17,9 @@ def run(*command: str) -> None:
     subprocess.run(command, cwd=ROOT, check=True)
 
 
-def check_target_console() -> None:
+def check_target_console(environment: str) -> None:
     """Verify application and bootloader logs use native USB exclusively."""
-    build = ROOT / ".pio" / "build" / ENVIRONMENT
+    build = ROOT / ".pio" / "build" / environment
     for config in (build / "config/sdkconfig.json", build / "bootloader/config/sdkconfig.json"):
         settings = json.loads(config.read_text())
         if not (
@@ -32,6 +33,30 @@ def check_target_console() -> None:
             raise RuntimeError(f"{config}: console must use USB Serial/JTAG without UART")
 
 
+def check_capture_link() -> None:
+    """Require the locked C3 SDK and real capture/UART/NVS symbols in the linked ELF."""
+    build = ROOT / ".pio" / "build" / CAPTURE_ENVIRONMENT
+    description = json.loads((build / "project_description.json").read_text())
+    if description["target"] != "esp32c3" or description["git_revision"] != "6.1.0":
+        raise RuntimeError("Revalidate RX capture for a different target or ESP-IDF version")
+    compiler = Path(description["c_compiler"])
+    nm = compiler.with_name(compiler.name.removesuffix("gcc") + "nm")
+    symbols = subprocess.check_output(
+        [str(nm), "--defined-only", str(build / "firmware.elf")], text=True
+    )
+    defined = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    required = {
+        "gs232b_esp_uart_open", "gs232b_esp_uart_boot_service",
+        "gs232b_uart_capture_open", "gs232b_uart_capture_service",
+        "rmt_new_rx_channel", "rmt_rx_register_event_callbacks", "rmt_enable",
+        "rmt_receive", "rmt_disable", "rmt_del_channel", "uart_set_baudrate", "gpio_get_level",
+        "gs232b_uart_baud_commit", "gs232b_nvs_store_port", "nvs_commit",
+    }
+    if missing := required - defined:
+        raise RuntimeError(f"Capture API link check missing symbols: {sorted(missing)}")
+    print("Verified ESP32-C3 / ESP-IDF 6.1.0 UART1 RX capture API link", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -41,8 +66,10 @@ def main() -> int:
 
     try:
         if not args.host_only:
-            run("pio", "run", "-e", ENVIRONMENT)
-            check_target_console()
+            run("pio", "run", "-e", ENVIRONMENT, "-e", CAPTURE_ENVIRONMENT)
+            check_target_console(ENVIRONMENT)
+            check_target_console(CAPTURE_ENVIRONMENT)
+            check_capture_link()
         run("cmake", "-S", "tests/host", "-B", "build/host")
         run("cmake", "--build", "build/host")
         run("ctest", "--test-dir", "build/host", "--output-on-failure", "--no-tests=error")

@@ -166,3 +166,30 @@ endif()
 
 add_test(NAME persistence COMMAND persistence_tests)
 set_tests_properties(persistence PROPERTIES TIMEOUT 5)
+
+foreach(motion_test IN ITEMS motion_tests motion_fault_tests)
+    add_executable(${motion_test}
+        ${motion_test}.c
+        ../fakes/motion_sim.c
+        ../../src/core/types.c
+        ../../src/core/ports.c
+        ../../src/core/coordinates.c
+        ../../src/core/feedback.c
+        ../../src/core/persistence.c
+        ../../src/core/output_manager.c
+        ../../src/core/motion.c
+        ../../src/core/motion_control.c
+        ../../src/core/motion_feedback.c
+    )
+    target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
+    set_target_properties(${motion_test} PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS NO
+    )
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${motion_test} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME ${motion_test} COMMAND ${motion_test})
+    set_tests_properties(${motion_test} PROPERTIES TIMEOUT 5)
+endforeach()

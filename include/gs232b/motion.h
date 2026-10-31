@@ -143,6 +143,15 @@ gs232b_error_t gs232b_motion_stop(gs232b_motion_t *motion, uint8_t axis_mask);
 gs232b_error_t gs232b_motion_tick(gs232b_motion_t *motion);
 
 /**
+ * @brief 外部调度器锁定故障，撤销两轴动作并尝试一次全停，保留首次诊断。
+ * @param code 有效的非 NONE 故障码；非特定轴故障记录 axis_mask=0。
+ * @param error 非 OK 的故障原因，也作为返回值；不自动重试停机或恢复动作。
+ * @note 与 tick 共用故障路径；停机失败保留输出未知，只能显式停止或清故障。
+ */
+gs232b_error_t gs232b_motion_abort(gs232b_motion_t *motion,
+                                  gs232b_fault_code_t code, gs232b_error_t error);
+
+/**
  * @brief 显式全停并重新验证启用且已校准轴的反馈和限位后解除 FAULT。
  * @note 全停提交失败或反馈仍异常时保留锁定；成功也不会恢复旧动作/目标。
  *       反接、卡滞等静止时不可观测的原因须由操作者修复后再清除。

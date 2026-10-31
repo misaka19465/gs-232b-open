@@ -34,12 +34,13 @@ gs232b_error_t gs232b_control_check(gs232b_control_t *control,
            GS232B_OK : GS232B_ERROR_CONFLICT;
 }
 
-bool gs232b_control_idle(const gs232b_control_activity_t *activity)
+bool gs232b_control_idle(const gs232b_control_activity_t *activity,
+                         gs232b_sequence_state_t sequence)
 {
     return !activity->axes_active[0] && !activity->axes_active[1] &&
            activity->output_stopped &&
-           activity->sequence != GS232B_SEQUENCE_LOADED_WAIT_T &&
-           activity->sequence != GS232B_SEQUENCE_RUNNING &&
+           sequence != GS232B_SEQUENCE_LOADED_WAIT_T &&
+           sequence != GS232B_SEQUENCE_RUNNING &&
            activity->interaction == GS232B_INTERACTION_NONE;
 }
 
@@ -126,7 +127,8 @@ gs232b_error_t gs232b_control_init(gs232b_control_t *control, gs232b_clock_t clo
         request_capacity < GS232B_LINE_STORAGE_BYTES || executor.validate == NULL ||
         executor.execute == NULL || executor.cancel == NULL || executor.stop == NULL ||
         executor.tick == NULL || executor.snapshot == NULL ||
-        executor.position_context == NULL) {
+        executor.position_context == NULL || executor.sequence_target == NULL ||
+        executor.fault == NULL) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     gs232b_control_activity_t activity = {0};
@@ -134,7 +136,7 @@ gs232b_error_t gs232b_control_init(gs232b_control_t *control, gs232b_clock_t clo
     if (error != GS232B_OK) {
         return error;
     }
-    if (!gs232b_control_idle(&activity)) {
+    if (!gs232b_control_idle(&activity, GS232B_SEQUENCE_EMPTY)) {
         return GS232B_ERROR_BUSY;
     }
     memset(control, 0, sizeof(*control));
@@ -282,14 +284,15 @@ gs232b_error_t gs232b_control_take(gs232b_control_t *control,
         return error != GS232B_OK ? error : GS232B_ERROR_HARDWARE_FAULT;
     }
     if (!gs232b_session_key_valid(control->owner)) {
-        if (!gs232b_control_idle(&activity)) {
+        if (!gs232b_control_idle(&activity, control->sequence_state.state)) {
             return GS232B_ERROR_BUSY;
         }
         /* NOTE: 自动取权不使同一批新鲜请求失效；撤权已推进 epoch，
          * 不允许从有效旧控制者直接换人，因此每次换人均跨越 epoch。 */
         control->owner = context.session;
     }
-    control->idle_timer_running = gs232b_control_idle(&activity);
+    control->idle_timer_running =
+        gs232b_control_idle(&activity, control->sequence_state.state);
     control->idle_since_us = control->clock.now_us(control->clock.ctx);
     return GS232B_OK;
 }
@@ -312,10 +315,12 @@ gs232b_error_t gs232b_control_release(gs232b_control_t *control,
     }
     gs232b_control_activity_t activity = {0};
     error = control->executor.snapshot(control->executor.ctx, &activity);
-    if (error != GS232B_OK || !gs232b_control_idle(&activity)) {
+    if (error != GS232B_OK ||
+        !gs232b_control_idle(&activity, control->sequence_state.state)) {
         return error != GS232B_OK ? error : GS232B_ERROR_BUSY;
     }
-    gs232b_control_cancel(control);
+    /* NOTE: 已结束序列仍供 N 查询；释放控制权只清执行端暂存任务。 */
+    control->executor.cancel(control->executor.ctx);
     control->owner = (gs232b_session_key_t){0};
     control->idle_timer_running = false;
     return gs232b_control_invalidate(control);
@@ -368,6 +373,7 @@ gs232b_error_t gs232b_control_snapshot(const gs232b_control_t *control,
             control->sessions[control->owner.session_id - 1].transport;
     }
     snapshot->epoch = control->epoch;
+    snapshot->sequence = control->sequence_state;
     snapshot->pending_requests = control->request_count;
     snapshot->request_bytes_used = control->request_bytes_used;
     snapshot->stop_mask = control->stop_mask;

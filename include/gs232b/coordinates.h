@@ -58,7 +58,8 @@ void gs232b_azimuth_display_settings_init(gs232b_azimuth_display_settings_t *set
  * @param changed 输出是否发生实际变化。
  * @return 参数有效且允许变更时返回 GS232B_OK。
  * @note 实际变更要求两轴停止、序列计时停止且没有校准交互。重复设置不要求停机。
- *       changed 为 true 时，调用方还需清除已加载或已结束的序列后再提交设置。
+ *       changed 为 true 时，设置提交成功的同一串行边界须清除已加载或已结束的序列；
+ *       持久化失败时须保留旧设置和序列。
  */
 gs232b_error_t gs232b_azimuth_display_set_mode(
     const gs232b_azimuth_display_settings_t *current,

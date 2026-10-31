@@ -120,14 +120,14 @@ static bool test_bare_single_and_cross_type_replacement(void)
     CHECK(fixture.sim.motion.state.axes[0].target_mdeg == 180000);
     CHECK(command_run(&fixture, 0, "W150 060\r"));
     CHECK(fixture.control.sequence.active.point_count == 0);
-    CHECK(fixture.sequence == GS232B_SEQUENCE_EMPTY);
+    CHECK(fixture.control.sequence_state.state == GS232B_SEQUENCE_EMPTY);
     CHECK(fixture.sim.motion.state.axes[0].target_mdeg == 150000);
     CHECK(fixture.sim.motion.state.axes[1].target_mdeg == 60000);
     CHECK(command_run(&fixture, 0, "W010 180 090 270 010\r"));
     CHECK(command_feed(&fixture, 0, " M   \r") == GS232B_OK);
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_ERROR_INVALID_ARGUMENT);
     CHECK(fixture.control.sequence.active.point_count == 0);
-    CHECK(fixture.sequence == GS232B_SEQUENCE_EMPTY);
+    CHECK(fixture.control.sequence_state.state == GS232B_SEQUENCE_EMPTY);
     CHECK(stopped(&fixture.sim));
 
     CHECK(command_run(&fixture, 0, "U\r"));

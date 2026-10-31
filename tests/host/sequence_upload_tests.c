@@ -55,7 +55,7 @@ static bool rejected_keeps_active(command_fixture_t *fixture, const char *bytes,
                                    size_t size, gs232b_error_t expected)
 {
     const gs232b_sequence_data_t before = fixture->control.sequence.active;
-    const gs232b_sequence_state_t state_before = fixture->sequence;
+    const gs232b_sequence_state_t state_before = fixture->control.sequence_state.state;
     const uint32_t hash = sequence_hash(&before);
     gs232b_motion_snapshot_t motion_before, motion_after;
     CHECK(snapshot(&fixture->sim, &motion_before));
@@ -70,7 +70,7 @@ static bool rejected_keeps_active(command_fixture_t *fixture, const char *bytes,
     CHECK(fixture->control.sequence.active.command == before.command);
     CHECK(fixture->control.sequence.active.point_count == before.point_count);
     CHECK(fixture->control.sequence.active.interval_s == before.interval_s);
-    CHECK(fixture->sequence == state_before);
+    CHECK(fixture->control.sequence_state.state == state_before);
     CHECK(sequence_hash(&fixture->control.sequence.active) == hash);
     CHECK(!gs232b_session_key_valid(fixture->control.input_reservation.session));
     CHECK(snapshot(&fixture->sim, &motion_after));
@@ -127,7 +127,7 @@ static bool test_maxima_and_atomic_replacement(void)
         CHECK(active->angles[2 * i + 1] == i * 23U % 181U);
     }
     CHECK(fixture.sim.motion.state.axes[1].target_mdeg == 135000);
-    CHECK(fixture.sequence == GS232B_SEQUENCE_LOADED_WAIT_T);
+    CHECK(fixture.control.sequence_state.state == GS232B_SEQUENCE_LOADED_WAIT_T);
     CHECK(!gs232b_session_key_valid(fixture.control.input_reservation.session));
     return true;
 }
@@ -138,7 +138,7 @@ static bool test_invalid_uploads_preserve_old_sequence(void)
     char line[GS232B_GS_LINE_MAX_BYTES + 2];
     CHECK(command_fixture_init(&fixture, 0));
     CHECK(command_run(&fixture, 0, "W007 090 090 180 045 270 010\r"));
-    fixture.sequence = GS232B_SEQUENCE_RUNNING;
+    CHECK(command_run(&fixture, 0, "T\r"));
     const char commands[] = {'M', 'W'};
     for (size_t i = 0; i < 2; ++i) {
         const size_t maximum = i == 0 ? 3800 : 1900;
@@ -189,7 +189,7 @@ static bool test_timeout_and_discard_recovery(void)
     CHECK(fixture.last_error[0] == GS232B_ERROR_TIMEOUT);
     CHECK(fixture.control.sequence.active.angles == old.angles);
     CHECK(sequence_hash(&fixture.control.sequence.active) == hash);
-    CHECK(fixture.sequence == GS232B_SEQUENCE_LOADED_WAIT_T);
+    CHECK(fixture.control.sequence_state.state == GS232B_SEQUENCE_LOADED_WAIT_T);
     CHECK(!gs232b_session_key_valid(fixture.control.input_reservation.session));
     CHECK(command_run(&fixture, 1, "N\r"));
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);

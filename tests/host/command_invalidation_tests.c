@@ -66,27 +66,25 @@ static bool test_axis_stops_cancel_sequence_and_preserve_other_axis(void)
     command_fixture_t fixture;
     for (int stopped_axis = 0; stopped_axis < GS232B_AXIS_COUNT; ++stopped_axis) {
         CHECK(command_fixture_init(&fixture, 0));
-        CHECK(command_run(&fixture, 0, "R\r"));
-        CHECK(command_run(&fixture, 0, "U\r"));
+        CHECK(command_run(&fixture, 0, "W001 180 150 200 160\r"));
+        CHECK(command_run(&fixture, 0, "T\r"));
         CHECK(command_advance(&fixture, 15));
-        fixture.sequence = GS232B_SEQUENCE_RUNNING;
-        fixture.sequence_would_restart = true;
         fixture.interaction = GS232B_INTERACTION_ZERO_AZ;
         CHECK(command_feed(&fixture, 0, "T\rR\rU\r") == GS232B_OK);
         const gs232b_command_epoch_t epoch = fixture.control.epoch;
         CHECK(command_run(&fixture, 1, stopped_axis == 0 ? "A\r" : "E\r"));
         CHECK(command_owner(&fixture, 0));
-        CHECK(fixture.sequence == GS232B_SEQUENCE_EMPTY);
+        CHECK(fixture.control.sequence_state.state == GS232B_SEQUENCE_EMPTY);
         CHECK(fixture.interaction == GS232B_INTERACTION_NONE);
-        CHECK(!fixture.sequence_would_restart);
         CHECK(fixture.control.epoch > epoch);
         CHECK(fixture.control.request_count == 0);
-        CHECK(command_advance(&fixture, 20));
+        CHECK(command_advance(&fixture, 80));
+        CHECK(fixture.sequence_targets == 0);
         gs232b_motion_snapshot_t state;
         CHECK(snapshot(&fixture.sim, &state));
         CHECK(state.axes[stopped_axis].mode == GS232B_AXIS_IDLE);
         CHECK(!state.axes[stopped_axis].target_valid);
-        CHECK(state.axes[1 - stopped_axis].mode == GS232B_AXIS_MANUAL);
+        CHECK(state.axes[1 - stopped_axis].mode == GS232B_AXIS_GOTO);
         CHECK(stopped_axis == 0 ? state.output.last_successful.azimuth == GS232B_AZ_STOP :
                                  state.output.last_successful.elevation == GS232B_EL_STOP);
         CHECK(command_run(&fixture, 2, "S\r"));
@@ -213,16 +211,16 @@ static bool test_fault_revokes_old_work_and_failed_stop_stays_unknown(void)
 {
     command_fixture_t fixture;
     CHECK(command_fixture_init(&fixture, 0));
-    CHECK(command_run(&fixture, 0, "R\r"));
+    CHECK(command_run(&fixture, 0, "W001 180 150 200 160\r"));
+    CHECK(command_run(&fixture, 0, "T\r"));
     CHECK(command_feed(&fixture, 0, "L\rU\r") == GS232B_OK);
-    fixture.sequence = GS232B_SEQUENCE_RUNNING;
     fixture.interaction = GS232B_INTERACTION_ZERO_AZ;
     const gs232b_command_epoch_t epoch = fixture.control.epoch;
     fixture.sim.sample_invalid[0] = true;
     CHECK(gs232b_control_tick(&fixture.control) != GS232B_OK);
     CHECK(command_unowned(&fixture));
     CHECK(fixture.control.epoch > epoch && fixture.control.request_count == 0);
-    CHECK(fixture.sequence == GS232B_SEQUENCE_EMPTY);
+    CHECK(fixture.control.sequence_state.state == GS232B_SEQUENCE_EMPTY);
     CHECK(fixture.interaction == GS232B_INTERACTION_NONE);
     CHECK(stopped(&fixture.sim));
     fixture.sim.sample_invalid[0] = false;

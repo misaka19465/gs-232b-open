@@ -71,17 +71,21 @@ static bool test_idle_release_and_holds(void)
     CHECK(command_advance(&fixture, 1));
     CHECK(command_unowned(&fixture));
 
-    CHECK(command_run(&fixture, 0, "X1\r"));
+    CHECK(command_fixture_init(&fixture, 0));
+    CHECK(command_run(&fixture, 0, "M999 090 090 090\r"));
     for (int state = GS232B_SEQUENCE_LOADED_WAIT_T;
          state <= GS232B_SEQUENCE_RUNNING; ++state) {
-        fixture.sequence = (gs232b_sequence_state_t)state;
-        fixture.sim.now_us += UINT64_C(999000000);
+        fixture.sim.now_us += UINT64_C(999000000) - 1;
         CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
+        CHECK(fixture.control.sequence_state.state == (gs232b_sequence_state_t)state);
         CHECK(command_owner(&fixture, 0));
         CHECK(gs232b_control_release(&fixture.control, command_context(&fixture, 0)) ==
               GS232B_ERROR_BUSY);
+        if (state == GS232B_SEQUENCE_LOADED_WAIT_T) {
+            CHECK(command_run(&fixture, 0, "T\r"));
+        }
     }
-    fixture.sequence = GS232B_SEQUENCE_EMPTY;
+    CHECK(command_run(&fixture, 0, "M090\r"));
     for (int interaction = GS232B_INTERACTION_ZERO_AZ;
          interaction <= GS232B_INTERACTION_DISPLAY_BOTH; ++interaction) {
         fixture.interaction = (gs232b_interaction_t)interaction;

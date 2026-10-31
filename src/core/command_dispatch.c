@@ -66,6 +66,11 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
             return error;
         }
     }
+    bool display_changed = false;
+    error = gs232b_control_sequence_display_change(control, request, &display_changed);
+    if (error != GS232B_OK) {
+        return error;
+    }
     if (writing) {
         if (acquiring) {
             error = gs232b_control_take(control, request->context);
@@ -80,6 +85,9 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
         if (error == GS232B_OK) {
             error = GS232B_ERROR_INVALID_ARGUMENT;
         }
+    } else if (request->kind == GS232B_LINE_GS && request->position == NULL &&
+               gs232b_byte_span_equal_ascii_ci(request->line, "T")) {
+        error = gs232b_control_sequence_start(control);
     } else {
         gs232b_control_request_t prepared = *request;
         prepared.position_plan = request->position != NULL ? &position_plan : NULL;
@@ -87,24 +95,30 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
         if (error == GS232B_OK && request->position != NULL) {
             gs232b_sequence_store_commit(&control->sequence, request->position,
                                           &position_context, &position_plan);
+            gs232b_control_sequence_loaded(control);
+        } else if (error == GS232B_OK && request->kind == GS232B_LINE_GS &&
+                   (display_changed || gs232b_byte_span_equal_ascii_ci(request->line, "R") ||
+                    gs232b_byte_span_equal_ascii_ci(request->line, "L") ||
+                    gs232b_byte_span_equal_ascii_ci(request->line, "U") ||
+                    gs232b_byte_span_equal_ascii_ci(request->line, "D"))) {
+            gs232b_control_sequence_clear(control);
         }
     }
     const gs232b_error_t state_error = gs232b_control_observe_fault(control);
-    if (error == GS232B_OK) {
+    if (error == GS232B_OK && request->access != GS232B_REQUEST_QUERY) {
         error = state_error;
     }
     if (writing && gs232b_session_key_equal(control->owner, request->context.session)) {
         gs232b_control_activity_t activity = {0};
         if (control->executor.snapshot(control->executor.ctx, &activity) == GS232B_OK) {
-            if (activity.sequence == GS232B_SEQUENCE_EMPTY) {
-                gs232b_sequence_store_clear(&control->sequence);
-            }
-            if (acquiring && error != GS232B_OK && gs232b_control_idle(&activity)) {
+            if (acquiring && error != GS232B_OK &&
+                gs232b_control_idle(&activity, control->sequence_state.state)) {
                 control->owner = (gs232b_session_key_t){0};
                 control->idle_timer_running = false;
                 gs232b_control_invalidate(control);
             } else if (error == GS232B_OK) {
-                control->idle_timer_running = gs232b_control_idle(&activity);
+                control->idle_timer_running =
+                    gs232b_control_idle(&activity, control->sequence_state.state);
                 control->idle_since_us = control->clock.now_us(control->clock.ctx);
             }
         }
@@ -191,7 +205,7 @@ static gs232b_error_t release_if_idle(gs232b_control_t *control)
     if (error != GS232B_OK) {
         return error;
     }
-    if (!gs232b_control_idle(&activity)) {
+    if (!gs232b_control_idle(&activity, control->sequence_state.state)) {
         control->idle_timer_running = false;
         return GS232B_OK;
     }
@@ -200,7 +214,8 @@ static gs232b_error_t release_if_idle(gs232b_control_t *control)
         control->idle_since_us = now_us;
         control->idle_timer_running = true;
     } else if (now_us - control->idle_since_us >= GS232B_CONTROL_IDLE_RELEASE_US) {
-        gs232b_control_cancel(control);
+        /* NOTE: 自动释放不删除 COMPLETED 的末点序号和已加载数据。 */
+        control->executor.cancel(control->executor.ctx);
         control->owner = (gs232b_session_key_t){0};
         control->idle_timer_running = false;
         return gs232b_control_invalidate(control);
@@ -215,14 +230,20 @@ gs232b_error_t gs232b_control_tick(gs232b_control_t *control)
     }
     const bool stopped = control->stop_mask != 0;
     const gs232b_error_t stop_error = stopped ? process_stops(control) : GS232B_OK;
+    const gs232b_error_t schedule_error = gs232b_control_sequence_check(control);
     const gs232b_error_t tick_error = control->executor.tick(control->executor.ctx);
     const gs232b_error_t state_error = gs232b_control_observe_fault(control);
+    const gs232b_error_t sequence_error = schedule_error == GS232B_OK &&
+        tick_error == GS232B_OK && state_error == GS232B_OK ?
+        gs232b_control_sequence_tick(control) : GS232B_OK;
     gs232b_control_expire_lines(control);
     const gs232b_error_t command_error = stopped ? GS232B_OK :
                                                  gs232b_control_dispatch_one(control);
     const gs232b_error_t idle_error = release_if_idle(control);
     return stop_error != GS232B_OK ? stop_error :
+           schedule_error != GS232B_OK ? schedule_error :
            tick_error != GS232B_OK ? tick_error :
            state_error != GS232B_OK ? state_error :
+           sequence_error != GS232B_OK ? sequence_error :
            command_error != GS232B_OK ? command_error : idle_error;
 }

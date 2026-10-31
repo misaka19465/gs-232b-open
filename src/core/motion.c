@@ -241,6 +241,16 @@ gs232b_error_t gs232b_motion_stop(gs232b_motion_t *motion, uint8_t axis_mask)
         gs232b_motion_latch_fault(motion, GS232B_FAULT_OUTPUT, error, 0);
 }
 
+gs232b_error_t gs232b_motion_abort(gs232b_motion_t *motion,
+                                  gs232b_fault_code_t code, gs232b_error_t error)
+{
+    if (!gs232b_motion_valid(motion) || code <= GS232B_FAULT_NONE ||
+        code > GS232B_FAULT_SEQUENCE_TARGET || error == GS232B_OK) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    return gs232b_motion_latch_fault(motion, code, error, 0);
+}
+
 gs232b_error_t gs232b_motion_clear_fault(gs232b_motion_t *motion)
 {
     if (!gs232b_motion_valid(motion)) {

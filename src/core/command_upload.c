@@ -69,6 +69,6 @@ gs232b_error_t gs232b_control_validate_position(
 
 void gs232b_control_cancel(gs232b_control_t *control)
 {
-    gs232b_sequence_store_clear(&control->sequence);
+    gs232b_control_sequence_clear(control);
     control->executor.cancel(control->executor.ctx);
 }

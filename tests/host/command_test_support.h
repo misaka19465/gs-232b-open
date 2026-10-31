@@ -2,6 +2,7 @@
 #define GS232B_COMMAND_TEST_SUPPORT_H
 
 #include "gs232b/command_control.h"
+#include "gs232b/response_encoder.h"
 #include "motion_test_support.h"
 
 #include <string.h>
@@ -14,13 +15,19 @@ typedef struct {
     uint8_t request_bytes[32768];
     uint8_t line_storage[CONTROL_TEST_SESSIONS][GS232B_LINE_STORAGE_BYTES];
     gs232b_session_key_t sessions[CONTROL_TEST_SESSIONS];
-    gs232b_sequence_state_t sequence;
     gs232b_interaction_t interaction;
     gs232b_azimuth_display_settings_t display;
-    bool sequence_would_restart;
     gs232b_error_t validation_error;
     gs232b_error_t execute_error;
     gs232b_error_t snapshot_error;
+    gs232b_error_t sequence_error;
+    gs232b_time_us_t tick_latency_us;
+    size_t target_attempts;
+    size_t targets_accepted;
+    size_t sequence_targets;
+    size_t faults;
+    gs232b_position_plan_t last_target;
+    gs232b_time_us_t target_at_us;
     size_t executed;
     size_t queries;
     size_t cancels;
@@ -28,6 +35,8 @@ typedef struct {
     size_t completes[CONTROL_TEST_SESSIONS];
     gs232b_error_t last_error[CONTROL_TEST_SESSIONS];
     gs232b_request_access_t last_access[CONTROL_TEST_SESSIONS];
+    uint8_t response[CONTROL_TEST_SESSIONS][32];
+    size_t response_size[CONTROL_TEST_SESSIONS];
 } command_fixture_t;
 
 static inline gs232b_time_us_t control_clock(void *ctx)
@@ -62,6 +71,7 @@ static inline gs232b_error_t control_execute(void *ctx,
     }
     if (request->position != NULL) {
         const gs232b_position_plan_t *plan = request->position_plan;
+        ++fixture->target_attempts;
         gs232b_error_t error = GS232B_OK;
         if (plan->stop_mask != 0) {
             error = gs232b_motion_stop(&fixture->sim.motion, plan->stop_mask);
@@ -71,24 +81,19 @@ static inline gs232b_error_t control_execute(void *ctx,
                                         plan->targets_mdeg);
         }
         if (error == GS232B_OK) {
-            fixture->sequence = request->position->format == GS232B_POSITION_SEQUENCE ?
-                GS232B_SEQUENCE_LOADED_WAIT_T : GS232B_SEQUENCE_EMPTY;
+            ++fixture->targets_accepted;
+            fixture->last_target = *plan;
+            fixture->target_at_us = fixture->sim.now_us;
         }
         return error;
     }
     if (command_is(request, "R") || command_is(request, "L")) {
-        fixture->sequence = GS232B_SEQUENCE_EMPTY;
         return gs232b_motion_manual(&fixture->sim.motion, GS232B_AXIS_AZIMUTH,
             command_is(request, "R") ? GS232B_MOTION_POSITIVE : GS232B_MOTION_NEGATIVE);
     }
     if (command_is(request, "U") || command_is(request, "D")) {
-        fixture->sequence = GS232B_SEQUENCE_EMPTY;
         return gs232b_motion_manual(&fixture->sim.motion, GS232B_AXIS_ELEVATION,
             command_is(request, "U") ? GS232B_MOTION_POSITIVE : GS232B_MOTION_NEGATIVE);
-    }
-    if (command_is(request, "T")) {
-        fixture->sequence = GS232B_SEQUENCE_RUNNING;
-        return GS232B_OK;
     }
     if (command_is(request, "O") || command_is(request, "F")) {
         fixture->interaction = command_is(request, "O") ? GS232B_INTERACTION_ZERO_AZ :
@@ -102,6 +107,14 @@ static inline gs232b_error_t control_execute(void *ctx,
     if (command_is(request, "X1")) {
         return gs232b_motion_set_speed(&fixture->sim.motion, 250);
     }
+    if (command_is(request, "P36") || command_is(request, "P45")) {
+        fixture->display.mode = command_is(request, "P36") ?
+            GS232B_AZIMUTH_DISPLAY_P36 : GS232B_AZIMUTH_DISPLAY_P45;
+    } else if (command_is(request, "Z") &&
+               fixture->display.mode == GS232B_AZIMUTH_DISPLAY_P36) {
+        fixture->display.center = fixture->display.center == GS232B_AZIMUTH_CENTER_NORTH ?
+            GS232B_AZIMUTH_CENTER_SOUTH : GS232B_AZIMUTH_CENTER_NORTH;
+    }
     return GS232B_OK;
 }
 
@@ -109,9 +122,7 @@ static inline void control_cancel(void *ctx)
 {
     command_fixture_t *fixture = ctx;
     ++fixture->cancels;
-    fixture->sequence = GS232B_SEQUENCE_EMPTY;
     fixture->interaction = GS232B_INTERACTION_NONE;
-    fixture->sequence_would_restart = false;
 }
 
 static inline gs232b_error_t control_stop(void *ctx, uint8_t mask)
@@ -123,11 +134,33 @@ static inline gs232b_error_t control_executor_tick(void *ctx)
 {
     command_fixture_t *fixture = ctx;
     ++fixture->ticks;
-    if (fixture->sequence_would_restart) {
-        gs232b_motion_manual(&fixture->sim.motion, GS232B_AXIS_AZIMUTH,
-                             GS232B_MOTION_POSITIVE);
-    }
+    fixture->sim.now_us += fixture->tick_latency_us;
     return gs232b_motion_tick(&fixture->sim.motion);
+}
+
+static inline gs232b_error_t control_sequence_target(void *ctx,
+    const gs232b_position_plan_t *plan)
+{
+    command_fixture_t *fixture = ctx;
+    ++fixture->target_attempts;
+    const gs232b_error_t error = fixture->sequence_error != GS232B_OK ?
+        fixture->sequence_error : gs232b_motion_goto(&fixture->sim.motion,
+            plan->axis_mask, plan->targets_mdeg);
+    if (error == GS232B_OK) {
+        ++fixture->targets_accepted;
+        ++fixture->sequence_targets;
+        fixture->last_target = *plan;
+        fixture->target_at_us = fixture->sim.now_us;
+    }
+    return error;
+}
+
+static inline gs232b_error_t control_fault(void *ctx, gs232b_fault_code_t code,
+                                           gs232b_error_t error)
+{
+    command_fixture_t *fixture = ctx;
+    ++fixture->faults;
+    return gs232b_motion_abort(&fixture->sim.motion, code, error);
 }
 
 static inline gs232b_error_t control_activity(void *ctx,
@@ -153,7 +186,6 @@ static inline gs232b_error_t control_activity(void *ctx,
         state.output.last_successful.azimuth == GS232B_AZ_STOP &&
         state.output.last_successful.elevation == GS232B_EL_STOP &&
         state.output.last_successful.speed_permille == 0;
-    activity->sequence = fixture->sequence;
     activity->interaction = fixture->interaction;
     activity->faulted = state.fault.code != GS232B_FAULT_NONE;
     return GS232B_OK;
@@ -168,6 +200,20 @@ static inline void control_complete(void *ctx, const gs232b_control_request_t *r
         fixture->completes[index] += count;
         fixture->last_error[index] = error;
         fixture->last_access[index] = request->access;
+        gs232b_response_t response = {
+            .kind = error == GS232B_OK ? GS232B_RESPONSE_SUCCESS : GS232B_RESPONSE_ERROR
+        };
+        if (error == GS232B_OK && request->access == GS232B_REQUEST_QUERY &&
+            command_is(request, "N")) {
+            gs232b_control_snapshot_t state;
+            if (gs232b_control_snapshot(&fixture->control, &state) == GS232B_OK) {
+                response.kind = GS232B_RESPONSE_SEQUENCE;
+                response.data.sequence.current_point = state.sequence.current_point;
+                response.data.sequence.point_count = state.sequence.point_count;
+            }
+        }
+        (void)gs232b_response_encode(&response, fixture->response[index],
+            sizeof(fixture->response[index]), &fixture->response_size[index]);
     }
 }
 
@@ -203,6 +249,8 @@ static inline bool command_fixture_init(command_fixture_t *fixture,
         .tick = control_executor_tick,
         .snapshot = control_activity,
         .position_context = control_position_context,
+        .sequence_target = control_sequence_target,
+        .fault = control_fault,
         .complete = control_complete
     };
     const gs232b_clock_t clock = {.ctx = fixture, .now_us = control_clock};

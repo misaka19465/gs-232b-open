@@ -86,14 +86,14 @@ static bool test_idle_release_and_holds(void)
         }
     }
     CHECK(command_run(&fixture, 0, "M090\r"));
-    for (int interaction = GS232B_INTERACTION_ZERO_AZ;
-         interaction <= GS232B_INTERACTION_DISPLAY_BOTH; ++interaction) {
-        fixture.interaction = (gs232b_interaction_t)interaction;
+    static const char *const calibration[] = {"O\r", "O2\r", "F\r", "F2\r"};
+    for (size_t i = 0; i < sizeof(calibration) / sizeof(calibration[0]); ++i) {
+        CHECK(command_run(&fixture, 0, calibration[i]));
         fixture.sim.now_us += UINT64_C(3000000);
         CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
         CHECK(command_owner(&fixture, 0));
+        CHECK(command_run(&fixture, 0, "\r"));
     }
-    fixture.interaction = GS232B_INTERACTION_NONE;
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
     fixture.sim.now_us += GS232B_CONTROL_IDLE_RELEASE_US;
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
@@ -167,20 +167,20 @@ static bool test_queued_interaction_input_and_isolation(void)
     CHECK(command_feed(&fixture, 0, "O\rN\r") == GS232B_OK);
     CHECK(command_feed(&fixture, 1, "N\r\r") == GS232B_OK);
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
-    CHECK(fixture.interaction == GS232B_INTERACTION_ZERO_AZ);
+    CHECK(fixture.control.calibration.kind == GS232B_INTERACTION_ZERO_AZ);
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
-    CHECK(fixture.interaction == GS232B_INTERACTION_NONE);
+    CHECK(fixture.control.calibration.kind == GS232B_INTERACTION_NONE);
     CHECK(fixture.last_access[0] == GS232B_REQUEST_WRITE);
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_OK);
     CHECK(command_run(&fixture, 0, "F\r"));
-    CHECK(fixture.interaction == GS232B_INTERACTION_DISPLAY_AZ);
+    CHECK(fixture.control.calibration.kind == GS232B_INTERACTION_DISPLAY_AZ);
     CHECK(command_run(&fixture, 1, "\r"));
-    CHECK(fixture.interaction == GS232B_INTERACTION_DISPLAY_AZ);
+    CHECK(fixture.control.calibration.kind == GS232B_INTERACTION_DISPLAY_AZ);
     CHECK(command_run(&fixture, 1, "N\r"));
-    CHECK(fixture.interaction == GS232B_INTERACTION_DISPLAY_AZ);
+    CHECK(fixture.control.calibration.kind == GS232B_INTERACTION_DISPLAY_AZ);
     CHECK(command_run(&fixture, 1, "S\r"));
-    CHECK(fixture.interaction == GS232B_INTERACTION_NONE);
+    CHECK(fixture.control.calibration.kind == GS232B_INTERACTION_NONE);
     CHECK(command_unowned(&fixture));
     return true;
 }

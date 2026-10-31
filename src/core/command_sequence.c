@@ -24,7 +24,7 @@ gs232b_error_t gs232b_control_sequence_display_change(gs232b_control_t *control,
     if (error != GS232B_OK) {
         return error;
     }
-    error = control->executor.snapshot(control->executor.ctx, &activity);
+    error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK) {
         return error;
     }
@@ -66,7 +66,7 @@ void gs232b_control_sequence_loaded(gs232b_control_t *control)
 gs232b_error_t gs232b_control_sequence_start(gs232b_control_t *control)
 {
     gs232b_control_activity_t activity = {0};
-    const gs232b_error_t error = control->executor.snapshot(control->executor.ctx, &activity);
+    const gs232b_error_t error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK || activity.faulted ||
         activity.interaction != GS232B_INTERACTION_NONE) {
         return error != GS232B_OK ? error : activity.faulted ?

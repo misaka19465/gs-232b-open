@@ -7,6 +7,16 @@ bool gs232b_control_valid(const gs232b_control_t *control)
     return control != NULL && control->initialized;
 }
 
+gs232b_error_t gs232b_control_activity(const gs232b_control_t *control,
+                                       gs232b_control_activity_t *activity)
+{
+    const gs232b_error_t error = control->executor.snapshot(control->executor.ctx, activity);
+    if (error == GS232B_OK) {
+        activity->interaction = control->calibration.kind;
+    }
+    return error;
+}
+
 gs232b_control_session_t *gs232b_control_find(gs232b_control_t *control,
                                             gs232b_session_key_t session)
 {
@@ -97,8 +107,7 @@ gs232b_error_t gs232b_control_stop_now(gs232b_control_t *control,
 gs232b_error_t gs232b_control_observe_fault(gs232b_control_t *control)
 {
     gs232b_control_activity_t activity = {0};
-    const gs232b_error_t error = control->executor.snapshot(control->executor.ctx,
-                                                            &activity);
+    const gs232b_error_t error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK || activity.faulted) {
         if (!control->fault_seen) {
             gs232b_control_invalidate(control);
@@ -128,7 +137,9 @@ gs232b_error_t gs232b_control_init(gs232b_control_t *control, gs232b_clock_t clo
         executor.execute == NULL || executor.cancel == NULL || executor.stop == NULL ||
         executor.tick == NULL || executor.snapshot == NULL ||
         executor.position_context == NULL || executor.sequence_target == NULL ||
-        executor.fault == NULL) {
+        executor.fault == NULL || executor.respond == NULL || executor.complete == NULL ||
+        executor.calibration.motion == NULL || !executor.calibration.motion->initialized ||
+        executor.calibration.store.load == NULL || executor.calibration.store.save == NULL) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     gs232b_control_activity_t activity = {0};
@@ -279,7 +290,7 @@ gs232b_error_t gs232b_control_take(gs232b_control_t *control,
         return error;
     }
     gs232b_control_activity_t activity = {0};
-    error = control->executor.snapshot(control->executor.ctx, &activity);
+    error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK || activity.faulted) {
         return error != GS232B_OK ? error : GS232B_ERROR_HARDWARE_FAULT;
     }
@@ -314,7 +325,7 @@ gs232b_error_t gs232b_control_release(gs232b_control_t *control,
         return GS232B_ERROR_BUSY;
     }
     gs232b_control_activity_t activity = {0};
-    error = control->executor.snapshot(control->executor.ctx, &activity);
+    error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK ||
         !gs232b_control_idle(&activity, control->sequence_state.state)) {
         return error != GS232B_OK ? error : GS232B_ERROR_BUSY;
@@ -362,8 +373,8 @@ gs232b_error_t gs232b_control_snapshot(const gs232b_control_t *control,
     if (!gs232b_control_valid(control)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
-    const gs232b_error_t error = control->executor.snapshot(control->executor.ctx,
-                                                            &snapshot->activity);
+    const gs232b_error_t error = gs232b_control_activity(control,
+                                                          &snapshot->activity);
     if (error != GS232B_OK) {
         return error;
     }

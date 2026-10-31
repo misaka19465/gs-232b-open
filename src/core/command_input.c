@@ -116,7 +116,7 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
         gs232b_session_key_equal(control->owner, request->context.session) &&
         (request->line.size == 0 || equal(request->line, "N"))) {
         gs232b_control_activity_t activity = {0};
-        error = control->executor.snapshot(control->executor.ctx, &activity);
+        error = gs232b_control_activity(control, &activity);
         if (error != GS232B_OK) {
             return error;
         }
@@ -141,6 +141,18 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
         if (error != GS232B_OK) {
             return error;
         }
+    }
+    if (gs232b_control_calibration_handles(control, request)) {
+        /* NOTE: 确认可能与 O/O2 同批到达；此处只排队，执行时才判断它
+         * 是否属于活动交互，独立 Y/YES/NO 不能取得控制权或保存。 */
+        const bool answer = equal(request->line, "Y") || equal(request->line, "YES") ||
+                            equal(request->line, "NO");
+        error = answer && control->calibration.kind == GS232B_INTERACTION_NONE ?
+            GS232B_OK : gs232b_control_calibration_validate(control, request);
+        if (error != GS232B_OK) {
+            return error;
+        }
+        return gs232b_control_enqueue(control, request);
     }
     if (request->position != NULL) {
         gs232b_position_context_t context;

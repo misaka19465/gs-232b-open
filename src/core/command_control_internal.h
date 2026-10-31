@@ -9,6 +9,22 @@
 
 /** @brief 检查已初始化的串行控制器。 */
 bool gs232b_control_valid(const gs232b_control_t *control);
+/** @brief 复制执行端活动状态，并填入核心持有的会话校准状态。 */
+gs232b_error_t gs232b_control_activity(const gs232b_control_t *control,
+                                       gs232b_control_activity_t *activity);
+/** @brief 判断当前请求是否由核心校准交互处理，禁止穿透普通执行端。 */
+bool gs232b_control_calibration_handles(const gs232b_control_t *control,
+                                        const gs232b_control_request_t *request);
+/** @brief 无副作用校验校准入口或交互输入；只允许来源会话改变交互。 */
+gs232b_error_t gs232b_control_calibration_validate(gs232b_control_t *control,
+    const gs232b_control_request_t *request);
+/** @brief 执行已获准的校准请求，生成单个同步响应正文。 */
+gs232b_error_t gs232b_control_calibration_execute(gs232b_control_t *control,
+    const gs232b_control_request_t *request, gs232b_response_t *response);
+/** @brief 推进交互期限及显示采样；异步正文仅发给发起会话。 */
+gs232b_error_t gs232b_control_calibration_tick(gs232b_control_t *control);
+/** @brief 清交互并作废发起会话尚未提交的半行，不写存储或提交输出。 */
+void gs232b_control_calibration_cancel(gs232b_control_t *control);
 /** @brief 按完整键查找活动会话；不存在或 generation 不匹配时返回 NULL。 */
 gs232b_control_session_t *gs232b_control_find(gs232b_control_t *control,
                                             gs232b_session_key_t session);

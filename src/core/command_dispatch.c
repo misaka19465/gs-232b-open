@@ -24,7 +24,8 @@ static void pop_request(gs232b_control_t *control)
 }
 
 static gs232b_error_t execute_request(gs232b_control_t *control,
-                                       const gs232b_control_request_t *request)
+                                       gs232b_control_request_t *request,
+                                       gs232b_response_t *response)
 {
     if (request->access == GS232B_REQUEST_OWNER_TAKE) {
         return gs232b_control_take(control, request->context);
@@ -37,7 +38,9 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
     }
     const bool bare = request->position != NULL &&
                       request->position->format == GS232B_POSITION_BARE;
-    gs232b_error_t error = bare ? GS232B_OK :
+    const bool calibrating = gs232b_control_calibration_handles(control, request);
+    gs232b_error_t error = calibrating ?
+        gs232b_control_calibration_validate(control, request) : bare ? GS232B_OK :
         control->executor.validate(control->executor.ctx, request);
     if (error != GS232B_OK) {
         return error;
@@ -79,7 +82,12 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
             }
         }
     }
-    if (bare) {
+    if (calibrating) {
+        error = gs232b_control_calibration_execute(control, request, response);
+        if (error == GS232B_OK) {
+            request->response = response;
+        }
+    } else if (bare) {
         gs232b_control_cancel(control);
         error = control->executor.stop(control->executor.ctx, GS232B_CONTROL_ALL_AXES);
         if (error == GS232B_OK) {
@@ -110,7 +118,7 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
     }
     if (writing && gs232b_session_key_equal(control->owner, request->context.session)) {
         gs232b_control_activity_t activity = {0};
-        if (control->executor.snapshot(control->executor.ctx, &activity) == GS232B_OK) {
+        if (gs232b_control_activity(control, &activity) == GS232B_OK) {
             if (acquiring && error != GS232B_OK &&
                 gs232b_control_idle(&activity, control->sequence_state.state)) {
                 control->owner = (gs232b_session_key_t){0};
@@ -148,14 +156,15 @@ gs232b_error_t gs232b_control_dispatch_one(gs232b_control_t *control)
             (request.line.size == 0 ||
              gs232b_byte_span_equal_ascii_ci(request.line, "N"))) {
             gs232b_control_activity_t activity = {0};
-            error = control->executor.snapshot(control->executor.ctx, &activity);
+            error = gs232b_control_activity(control, &activity);
             request.access = gs232b_session_key_equal(control->owner,
                                                        request.context.session) &&
                              activity.interaction != GS232B_INTERACTION_NONE ?
                              GS232B_REQUEST_WRITE : GS232B_REQUEST_QUERY;
         }
+        gs232b_response_t response;
         if (error == GS232B_OK) {
-            error = execute_request(control, &request);
+            error = execute_request(control, &request, &response);
         }
         gs232b_control_complete(control, &request, error, 1);
     }
@@ -201,7 +210,7 @@ static gs232b_error_t release_if_idle(gs232b_control_t *control)
         return GS232B_OK;
     }
     gs232b_control_activity_t activity = {0};
-    const gs232b_error_t error = control->executor.snapshot(control->executor.ctx, &activity);
+    const gs232b_error_t error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK) {
         return error;
     }
@@ -232,6 +241,7 @@ gs232b_error_t gs232b_control_tick(gs232b_control_t *control)
     const gs232b_error_t stop_error = stopped ? process_stops(control) : GS232B_OK;
     const gs232b_error_t schedule_error = gs232b_control_sequence_check(control);
     const gs232b_error_t tick_error = control->executor.tick(control->executor.ctx);
+    const gs232b_error_t calibration_error = gs232b_control_calibration_tick(control);
     const gs232b_error_t state_error = gs232b_control_observe_fault(control);
     const gs232b_error_t sequence_error = schedule_error == GS232B_OK &&
         tick_error == GS232B_OK && state_error == GS232B_OK ?
@@ -245,5 +255,6 @@ gs232b_error_t gs232b_control_tick(gs232b_control_t *control)
            tick_error != GS232B_OK ? tick_error :
            state_error != GS232B_OK ? state_error :
            sequence_error != GS232B_OK ? sequence_error :
+           calibration_error != GS232B_OK ? calibration_error :
            command_error != GS232B_OK ? command_error : idle_error;
 }

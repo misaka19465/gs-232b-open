@@ -28,6 +28,7 @@ gs232b_error_t gs232b_control_upload_begin(void *ctx, uint16_t **angles)
         return GS232B_ERROR_NOT_OWNER;
     }
     if (control->stop_mask != 0 ||
+        control->calibration.kind != GS232B_INTERACTION_NONE ||
         gs232b_session_key_valid(control->input_reservation.session)) {
         return GS232B_ERROR_BUSY;
     }
@@ -55,7 +56,7 @@ gs232b_error_t gs232b_control_validate_position(
         return GS232B_OK;
     }
     gs232b_control_activity_t activity = {0};
-    gs232b_error_t error = control->executor.snapshot(control->executor.ctx, &activity);
+    gs232b_error_t error = gs232b_control_activity(control, &activity);
     if (error != GS232B_OK || activity.faulted) {
         return error != GS232B_OK ? error : GS232B_ERROR_HARDWARE_FAULT;
     }
@@ -69,6 +70,7 @@ gs232b_error_t gs232b_control_validate_position(
 
 void gs232b_control_cancel(gs232b_control_t *control)
 {
+    gs232b_control_calibration_cancel(control);
     gs232b_control_sequence_clear(control);
     control->executor.cancel(control->executor.ctx);
 }

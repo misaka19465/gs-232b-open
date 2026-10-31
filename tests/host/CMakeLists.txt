@@ -171,10 +171,12 @@ set_tests_properties(persistence PROPERTIES TIMEOUT 5)
 foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tests
                              command_invalidation_tests sequence_upload_tests
                              sequence_commit_tests sequence_timing_tests
-                             sequence_lifecycle_tests sequence_fault_tests)
+                             sequence_lifecycle_tests sequence_fault_tests
+                             calibration_tests calibration_lifecycle_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
+        ../fakes/fakes.c
         ../../src/core/types.c
         ../../src/core/ports.c
         ../../src/core/coordinates.c
@@ -188,6 +190,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/position_parser.c
         ../../src/core/sequence_store.c
         ../../src/core/command_sequence.c
+        ../../src/core/command_calibration.c
         ../../src/core/response_encoder.c
         ../../src/core/command_upload.c
         ../../src/core/command_control.c

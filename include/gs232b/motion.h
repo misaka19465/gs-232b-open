@@ -104,6 +104,15 @@ gs232b_error_t gs232b_motion_configure_axis(gs232b_motion_t *motion,
                                            const gs232b_motion_axis_config_t *config);
 
 /**
+ * @brief 在已知全停的串行边界重新采样，持久化成功后原子应用指定轴零点。
+ * @note 不复用进入校准前的滤波窗口；采样、跨度或存储失败均保留原配置。
+ *       store.save 必须遵守失败保留旧记录的存储契约，不得重入运动控制。
+ */
+gs232b_error_t gs232b_motion_save_zero(gs232b_motion_t *motion,
+                                      const gs232b_store_t *store,
+                                      gs232b_axis_id_t axis);
+
+/**
  * @brief 手动控制指定轴，另一轴保持当前动作；STOP 不要求校准或反馈有效。
  * @return 缺零点、轴禁用或反馈无效时返回 NOT_READY；FAULT 中拒绝新运动。
  * @note 启动前推进一次安全检查；在限位处向外运动会锁定 LIMIT 故障。

@@ -139,6 +139,56 @@ gs232b_error_t gs232b_motion_configure_axis(gs232b_motion_t *motion,
     return GS232B_OK;
 }
 
+gs232b_error_t gs232b_motion_save_zero(gs232b_motion_t *motion,
+                                      const gs232b_store_t *store,
+                                      gs232b_axis_id_t axis)
+{
+    if (!gs232b_motion_valid(motion) || !axis_valid(axis) || store == NULL) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    gs232b_motion_sync_output(motion);
+    const gs232b_output_snapshot_t *output = &motion->state.output;
+    if (gs232b_motion_active(motion) || !output->known ||
+        output->last_successful.azimuth != GS232B_AZ_STOP ||
+        output->last_successful.elevation != GS232B_EL_STOP ||
+        output->last_successful.speed_permille != 0) {
+        return GS232B_ERROR_BUSY;
+    }
+    if (!motion->config.axes[axis].enabled) {
+        return GS232B_ERROR_NOT_READY;
+    }
+    gs232b_sample_t sample;
+    gs232b_error_t error = gs232b_sampler_read(&motion->sampler, axis, &sample);
+    const gs232b_time_us_t now_us = motion->manager->clock.now_us(
+        motion->manager->clock.ctx);
+    if (error == GS232B_OK) {
+        error = gs232b_feedback_sample_validate(&sample, now_us);
+    }
+    if (error == GS232B_OK && motion->axes[axis].sample_seen &&
+        sample.acquired_at_us < motion->axes[axis].latest_sample_at_us) {
+        error = GS232B_ERROR_NOT_READY;
+    }
+    if (error != GS232B_OK) {
+        return error;
+    }
+    const gs232b_feedback_reading_t reading = {
+        .acquired_at_us = sample.acquired_at_us,
+        .adc_uv = sample.adc_uv,
+        .valid = true
+    };
+    error = gs232b_feedback_zero_save(store, axis, &reading, now_us);
+    if (error == GS232B_OK) {
+        gs232b_motion_axis_config_t next = motion->config.axes[axis];
+        next.zero_uv = reading.adc_uv;
+        next.zero_valid = true;
+        /* NOTE: 停机、轴配置和跨度已验证；存储回调不得重入，因此提交后
+         * 直接应用，不引入可能失败的第二次配置操作或回滚写入。 */
+        set_axis_config(motion, axis, &next);
+        gs232b_motion_sync_output(motion);
+    }
+    return error;
+}
+
 static gs232b_error_t prepare_motion(gs232b_motion_t *motion)
 {
     if (motion->state.fault.code != GS232B_FAULT_NONE) {

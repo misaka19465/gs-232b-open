@@ -4,6 +4,8 @@
 #include "gs232b/line_parser.h"
 #include "gs232b/ports.h"
 #include "gs232b/sequence_store.h"
+#include "gs232b/calibration.h"
+#include "gs232b/response_encoder.h"
 
 #define GS232B_CONTROL_MAX_SESSIONS 7U
 #define GS232B_CONTROL_REQUESTS_PER_SESSION 8U
@@ -30,6 +32,7 @@ typedef struct {
     gs232b_byte_span_t line;
     const gs232b_position_command_t *position; /* NOTE: M/W 使用数字视图，line 为空。 */
     const gs232b_position_plan_t *position_plan; /* NOTE: 仅执行已验证的数字命令时有效。 */
+    const gs232b_response_t *response; /* NOTE: 仅 complete 期间有效的校准响应正文。 */
 } gs232b_control_request_t;
 
 typedef struct {
@@ -42,12 +45,13 @@ typedef struct {
 /**
  * @brief 借用的同步执行端口；回调必须有界、非阻塞，不得重入修改控制器的 API。
  * @note validate 只校验，不改变动作；execute 只处理已获准的完整普通行，
- *       必须按 request.context.session 隔离交互和响应。QUERY 不得修改动作。
- *       cancel 无条件清除交互和其他暂存动作，不提交输出；stop
+ *       必须按 request.context.session 隔离响应。QUERY 不得修改动作。
+ *       cancel 无条件清除执行端暂存动作，不提交输出；stop
  *       撤销 mask 指定轴的已接纳目标/手动/换向动作并立即提交停止，其他轴
  *       已接纳的动作继续。tick 推进采样和运动安全检查，不得另读命令。
- *       snapshot 必须反映上述真实状态；运动故障由执行端锁定并全停。
- *       complete 可省略；仅向来源会话报告结果，line 视图仅在回调期间有效；
+ *       snapshot 必须反映上述真实状态，interaction 由核心填入；运动故障由执行端锁定并全停。
+ *       complete 仅向来源会话报告结果，line/response 视图仅在回调期间有效；
+ *       成功且 response 非空时编码该正文，不追加普通确认；错误始终编码协议错误。
  *       M/W 完成通知只含 position 元数据，angles=NULL；有效机械角读取 active。
  *       可调用 control_snapshot 复制只读状态，OWNER GET/TAKE/RELEASE 在此编码响应。
  *       position_context 只复制最新坐标/轴能力，不采样或提交输出；M/W 全量校验
@@ -62,6 +66,11 @@ typedef struct {
  *       裸 M/W 由控制核心在权限通过后清任务、全停并返回错误，不调用 execute。
  *       普通请求 count=1；同周期同来源同种停止合并，count 是应答数量。
  *       epoch 作废的普通请求静默丢弃。回调和 ctx 生命周期覆盖控制器。
+ *       calibration.motion 必须是上述回调操作的同一运动核心，与控制器共用单调时钟；
+ *       calibration.store 只在已知全停时保存零点，必须有界且失败保留旧记录。
+ *       O/O2/F/F2 及发起会话的 GS 交互输入由核心处理，不调用 validate/execute。
+ *       respond 是必需的异步校准响应端口，仅向完整会话键指定的有界 TX 队列复制
+ *       编码帧；失败时核心关闭该会话、全停并撤权，适配器须同步清理实际连接。
  */
 typedef struct {
     void *ctx;
@@ -76,6 +85,9 @@ typedef struct {
     gs232b_error_t (*fault)(void *ctx, gs232b_fault_code_t code, gs232b_error_t error);
     void (*complete)(void *ctx, const gs232b_control_request_t *request,
                      gs232b_error_t result, uint32_t count);
+    gs232b_calibration_ports_t calibration;
+    gs232b_error_t (*respond)(void *ctx, gs232b_session_key_t session,
+                               const gs232b_response_t *response);
 } gs232b_control_executor_t;
 
 typedef struct {
@@ -119,6 +131,7 @@ struct gs232b_control {
     size_t request_count;
     gs232b_sequence_store_t sequence;
     gs232b_sequence_snapshot_t sequence_state;
+    gs232b_calibration_t calibration;
     gs232b_time_us_t sequence_started_at_us;
     gs232b_time_us_t sequence_checked_at_us;
     gs232b_command_context_t input_reservation;

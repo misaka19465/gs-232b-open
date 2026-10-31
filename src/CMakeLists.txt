@@ -5,6 +5,6 @@ idf_component_register(
          "core/motion_control.c" "core/motion_feedback.c" "platform/nvs_store.c"
          "core/command_control.c" "core/command_input.c" "core/command_dispatch.c"
          "core/position_parser.c" "core/sequence_store.c" "core/command_upload.c"
-         "core/command_sequence.c"
+         "core/command_sequence.c" "core/command_calibration.c"
     INCLUDE_DIRS "." "../include"
 )

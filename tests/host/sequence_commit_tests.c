@@ -20,13 +20,14 @@ static bool test_full_validation_and_execution_recheck(void)
     const gs232b_sequence_data_t old = fixture.control.sequence.active;
     const size_t executed = fixture.executed;
     CHECK(command_feed(&fixture, 0, "M010 120 240\r") == GS232B_OK);
-    fixture.interaction = GS232B_INTERACTION_ZERO_AZ;
+    fixture.control.calibration.kind = GS232B_INTERACTION_ZERO_AZ;
+    fixture.control.calibration.session = fixture.sessions[0];
     CHECK(gs232b_control_tick(&fixture.control) == GS232B_ERROR_BUSY);
     CHECK(fixture.control.sequence.active.angles == old.angles);
     CHECK(fixture.control.sequence.active.command == 'W');
     CHECK(fixture.executed == executed);
     CHECK(!gs232b_session_key_valid(fixture.control.input_reservation.session));
-    fixture.interaction = GS232B_INTERACTION_NONE;
+    fixture.control.calibration.kind = GS232B_INTERACTION_NONE;
 
     CHECK(command_feed(&fixture, 0, "M010 120 240\r") == GS232B_OK);
     fixture.execute_error = GS232B_ERROR_NOT_READY;

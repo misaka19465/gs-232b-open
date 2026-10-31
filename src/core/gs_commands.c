@@ -94,8 +94,8 @@ gs232b_error_t gs232b_gs_execute(void *ctx, const gs232b_control_request_t *requ
                 GS232B_MOTION_POSITIVE : GS232B_MOTION_NEGATIVE);
     }
     if (command >= GS_COMMAND_X1 && command <= GS_COMMAND_X4) {
-        return gs232b_motion_set_speed(dispatcher->motion,
-            (uint16_t)((command - GS_COMMAND_X1 + 1) * 250));
+        return gs232b_motion_set_speed_level(dispatcher->motion,
+            (uint8_t)(command - GS_COMMAND_X1 + 1));
     }
     if (command == GS_COMMAND_P36 || command == GS_COMMAND_P45 || command == GS_COMMAND_Z) {
         return display_change(dispatcher, command);

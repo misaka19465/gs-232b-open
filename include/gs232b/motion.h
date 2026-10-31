@@ -3,6 +3,7 @@
 
 #include "gs232b/feedback.h"
 #include "gs232b/output_manager.h"
+#include "gs232b/speed.h"
 
 #define GS232B_MOTION_AZ_MASK UINT8_C(0x01)
 #define GS232B_MOTION_EL_MASK UINT8_C(0x02)
@@ -34,6 +35,7 @@ typedef struct {
     gs232b_motion_axis_config_t axes[GS232B_AXIS_COUNT];
     uint16_t azimuth_speed_permille;
     uint16_t azimuth_slow_speed_permille;
+    gs232b_speed_levels_t azimuth_speed_levels;
 } gs232b_motion_config_t;
 
 typedef struct {
@@ -78,6 +80,7 @@ typedef struct {
  * @brief 初始化固件配置，两轴默认禁用且没有零点。
  * @note 初始参数为容差 0.5°、AZ 减速区 15°、进展阈值 0.1°、反向阈值
  *       1°、无进展 5s、连续运行 300s、AZ PWM 800/300‰。
+ *       X1..X4 默认为 250/500/750/1000‰，可在初始化前替换四档固件参数。
  *       这些是开发起点，部署前须按控制箱实测调整；EL 不支持 PWM 减速。
  */
 void gs232b_motion_config_init(gs232b_motion_config_t *config);
@@ -136,6 +139,13 @@ gs232b_error_t gs232b_motion_goto(gs232b_motion_t *motion, uint8_t axis_mask,
  */
 gs232b_error_t gs232b_motion_set_speed(gs232b_motion_t *motion,
                                       uint16_t speed_permille);
+
+/**
+ * @brief 按固件四档参数选择 X1..X4 的方位 PWM 请求，沿用近目标减速策略。
+ * @param level 档号 1..4；非法档号不改变配置或输出。
+ * @note 必须经命令控制权检查；成功不代表实际转速或模拟电压已确认。
+ */
+gs232b_error_t gs232b_motion_set_speed_level(gs232b_motion_t *motion, uint8_t level);
 
 /**
  * @brief 撤销所选轴的动作和目标并立即清方向；全选时强制提交全停。

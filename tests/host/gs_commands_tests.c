@@ -91,6 +91,50 @@ static bool test_targets_and_slowdown(void)
     return true;
 }
 
+static bool test_firmware_speed_levels_and_slowdown(void)
+{
+    gs_fixture_t fixture;
+    memset(&fixture, 0, sizeof(fixture));
+    gs232b_motion_config_t config;
+    gs232b_motion_sim_config(&config);
+    const gs232b_speed_levels_t levels = {.permille = {175, 410, 635, 970}};
+    config.azimuth_speed_levels = levels;
+    CHECK(gs232b_motion_sim_init(&fixture.sim, &config, 0, WAIT_US) == GS232B_OK);
+    /* NOTE: 初始化按值复制固件参数，调用方后续修改不影响已活动实例。 */
+    config.azimuth_speed_levels.permille[0] = 99;
+    gs232b_fake_store_init(&fixture.store);
+    CHECK(gs_boot(&fixture));
+    CHECK(gs_run(&fixture, 0, "R\r", "\r"));
+    CHECK(gs_run(&fixture, 0, "U\r", "\r"));
+    CHECK(gs_step(&fixture, 15));
+    static const char *const commands[] = {"X1\r", "X2\r", "X3\r", "X4\r"};
+    for (unsigned i = 0; i < GS232B_SPEED_LEVEL_COUNT; ++i) {
+        CHECK(gs_run(&fixture, 0, commands[i], "\r"));
+        CHECK(fixture.sim.pwm_permille == levels.permille[i]);
+        gs232b_motion_snapshot_t state;
+        CHECK(snapshot(&fixture.sim, &state));
+        CHECK(state.output.known && !state.output.speed_voltage_confirmed);
+        CHECK(state.output.last_successful.elevation == GS232B_EL_UP);
+    }
+    const size_t attempts = fixture.sim.output_attempts;
+    CHECK(gs232b_motion_set_speed_level(&fixture.sim.motion, 0) ==
+        GS232B_ERROR_INVALID_ARGUMENT);
+    CHECK(gs232b_motion_set_speed_level(&fixture.sim.motion, 5) ==
+        GS232B_ERROR_INVALID_ARGUMENT);
+    CHECK(gs232b_motion_set_speed_level(&fixture.sim.motion, UINT8_MAX) ==
+        GS232B_ERROR_INVALID_ARGUMENT);
+    CHECK(gs232b_motion_set_speed_level(NULL, 1) == GS232B_ERROR_INVALID_ARGUMENT);
+    CHECK(fixture.sim.output_attempts == attempts && fixture.sim.pwm_permille == 970);
+    CHECK(fixture.sim.motion.config.azimuth_speed_permille == 970);
+    CHECK(gs_run(&fixture, 0, "M100\r", "\r"));
+    CHECK(fixture.sim.pwm_permille == config.azimuth_slow_speed_permille);
+    CHECK(gs_run(&fixture, 0, "X1\r", "\r"));
+    CHECK(fixture.sim.pwm_permille == levels.permille[0]);
+    CHECK(gs_run(&fixture, 2, "S\r", "\r"));
+    CHECK(stopped(&fixture.sim));
+    return true;
+}
+
 static bool test_modes_persistence_mapping_and_atomic_failure(void)
 {
     gs_fixture_t fixture;
@@ -160,6 +204,7 @@ int main(void)
 {
     if (!test_queries_framing_and_actual_feedback() ||
         !test_manual_axes_stops_and_all_speeds() || !test_targets_and_slowdown() ||
+        !test_firmware_speed_levels_and_slowdown() ||
         !test_modes_persistence_mapping_and_atomic_failure() ||
         !test_disabled_elevation_and_invalid_queries()) {
         return EXIT_FAILURE;

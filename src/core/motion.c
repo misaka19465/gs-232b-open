@@ -76,6 +76,7 @@ void gs232b_motion_config_init(gs232b_motion_config_t *config)
     memset(config, 0, sizeof(*config));
     config->azimuth_speed_permille = 800;
     config->azimuth_slow_speed_permille = 300;
+    gs232b_speed_levels_init(&config->azimuth_speed_levels);
     for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
         gs232b_motion_axis_config_t *axis = &config->axes[i];
         gs232b_axis_mechanical_limits((gs232b_axis_id_t)i,
@@ -101,7 +102,8 @@ gs232b_error_t gs232b_motion_init(gs232b_motion_t *motion,
         !config_valid(GS232B_AXIS_ELEVATION, &config->axes[1]) ||
         config->azimuth_speed_permille == 0 || config->azimuth_speed_permille > 1000 ||
         config->azimuth_slow_speed_permille == 0 ||
-        config->azimuth_slow_speed_permille > 1000) {
+        config->azimuth_slow_speed_permille > 1000 ||
+        !gs232b_speed_levels_valid(&config->azimuth_speed_levels)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     memset(motion, 0, sizeof(*motion));
@@ -268,6 +270,17 @@ gs232b_error_t gs232b_motion_set_speed(gs232b_motion_t *motion, uint16_t speed_p
     }
     motion->config.azimuth_speed_permille = speed_permille;
     return gs232b_motion_drive(motion);
+}
+
+gs232b_error_t gs232b_motion_set_speed_level(gs232b_motion_t *motion, uint8_t level)
+{
+    if (!gs232b_motion_valid(motion)) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    uint16_t permille;
+    const gs232b_error_t error = gs232b_speed_level_permille(
+        &motion->config.azimuth_speed_levels, level, &permille);
+    return error != GS232B_OK ? error : gs232b_motion_set_speed(motion, permille);
 }
 
 gs232b_error_t gs232b_motion_stop(gs232b_motion_t *motion, uint8_t axis_mask)

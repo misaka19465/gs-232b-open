@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "driver/gpio.h"
-#include "driver/ledc.h"
 #include "esp_rom_sys.h"
 
 #define SPI_MOSI GPIO_NUM_4
@@ -11,8 +10,6 @@
 #define SPI_SCLK GPIO_NUM_3
 #define W5500_CS GPIO_NUM_8
 #define HC595_LATCH GPIO_NUM_2
-#define SPEED_PWM GPIO_NUM_20
-#define PWM_MAX 1023U
 
 static gs232b_error_t map_error(esp_err_t error)
 {
@@ -97,14 +94,8 @@ static gs232b_error_t transmit_w5500(void *ctx, uint8_t control, uint16_t addres
 
 static gs232b_error_t set_pwm(void *ctx, uint16_t permille)
 {
-    (void)ctx;
-    /* NOTE: 满量程写 1023 而非 1024，避免 C3 的 10bit 计数越界。 */
-    const uint32_t duty = ((uint32_t)permille * PWM_MAX + 500U) / 1000U;
-    esp_err_t error = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
-    if (error == ESP_OK) {
-        error = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-    }
-    return map_error(error);
+    gs232b_esp_shared_spi_t *adapter = ctx;
+    return gs232b_esp_ledc_set_permille(&adapter->pwm, permille);
 }
 
 gs232b_error_t gs232b_esp_shared_spi_close(gs232b_esp_shared_spi_t *adapter)
@@ -128,11 +119,8 @@ gs232b_error_t gs232b_esp_shared_spi_close(gs232b_esp_shared_spi_t *adapter)
         if (error != ESP_OK) { return map_error(error); }
         adapter->host_open = false;
     }
-    if (adapter->pwm_open) {
-        error = ledc_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
-        if (error != ESP_OK) { return map_error(error); }
-        adapter->pwm_open = false;
-    }
+    const gs232b_error_t pwm_error = gs232b_esp_ledc_close(&adapter->pwm);
+    if (pwm_error != GS232B_OK) { return pwm_error; }
     if (adapter->mutex != NULL) {
         vSemaphoreDelete(adapter->mutex);
         adapter->mutex = NULL;
@@ -146,7 +134,8 @@ gs232b_error_t gs232b_esp_shared_spi_open(gs232b_esp_shared_spi_t *adapter,
 {
     if (adapter == NULL || clock_hz <= 0 || clock_hz > GS232B_BOARD_SPI_CLOCK_HZ ||
         timeout_ms == 0 || timeout_ms > 1000U || adapter->mutex != NULL ||
-        adapter->host_open || adapter->pwm_open) {
+        adapter->host_open || adapter->pwm.timer_open || adapter->pwm.channel_open ||
+        adapter->pwm.opened) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     adapter->timeout_ticks = pdMS_TO_TICKS(timeout_ms);
@@ -165,22 +154,12 @@ gs232b_error_t gs232b_esp_shared_spi_open(gs232b_esp_shared_spi_t *adapter,
         .intr_type = GPIO_INTR_DISABLE
     };
     if (error == ESP_OK) { error = gpio_config(&pins); }
-    const ledc_timer_config_t timer = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = LEDC_TIMER_10_BIT,
-        .timer_num = LEDC_TIMER_0,
-        .freq_hz = 20000,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
-    if (error == ESP_OK) { error = ledc_timer_config(&timer); }
-    const ledc_channel_config_t pwm = {
-        .gpio_num = SPEED_PWM, .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_0, .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = LEDC_TIMER_0, .duty = 0, .hpoint = 0
-    };
     if (error == ESP_OK) {
-        error = ledc_channel_config(&pwm);
-        adapter->pwm_open = error == ESP_OK;
+        const gs232b_error_t pwm_error = gs232b_esp_ledc_open(&adapter->pwm);
+        if (pwm_error != GS232B_OK) {
+            (void)gs232b_esp_shared_spi_close(adapter);
+            return pwm_error;
+        }
     }
     const spi_bus_config_t host = {
         .mosi_io_num = SPI_MOSI, .miso_io_num = SPI_MISO, .sclk_io_num = SPI_SCLK,

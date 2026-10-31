@@ -190,6 +190,19 @@ static bool test_endpoints_and_argument_guards(void)
           GS232B_ERROR_INVALID_ARGUMENT);
     CHECK(gs232b_motion_set_speed(&sim.motion, 0) == GS232B_ERROR_INVALID_ARGUMENT);
     CHECK(gs232b_motion_set_speed(&sim.motion, 1001) == GS232B_ERROR_INVALID_ARGUMENT);
+    gs232b_motion_t rejected = {0};
+    const gs232b_speed_levels_t invalid_levels[] = {
+        {.permille = {0, 500, 750, 1000}},
+        {.permille = {250, 500, 750, 1001}},
+        {.permille = {250, 250, 750, 1000}},
+        {.permille = {250, 750, 500, 1000}}
+    };
+    for (unsigned i = 0; i < sizeof(invalid_levels) / sizeof(invalid_levels[0]); ++i) {
+        config.azimuth_speed_levels = invalid_levels[i];
+        CHECK(gs232b_motion_init(&rejected, &sim.manager, sim.motion.sampler, &config) ==
+            GS232B_ERROR_INVALID_ARGUMENT);
+        CHECK(!rejected.initialized);
+    }
     gs232b_motion_axis_config_t invalid = config.axes[0];
     invalid.minimum_mdeg = invalid.maximum_mdeg;
     CHECK(gs232b_motion_configure_axis(&sim.motion, 0, &invalid) == GS232B_ERROR_INVALID_ARGUMENT);

@@ -22,6 +22,7 @@ static bool test_types_and_epoch(void)
     CHECK(state.axes[GS232B_AXIS_ELEVATION].minimum_mdeg == 0);
     CHECK(state.axes[GS232B_AXIS_ELEVATION].maximum_mdeg == 180000);
     CHECK(!state.output.known);
+    CHECK(!state.output.speed_voltage_confirmed);
     CHECK(state.output.requested.azimuth == GS232B_AZ_STOP);
     CHECK(state.output.requested.elevation == GS232B_EL_STOP);
     CHECK(state.output.requested.w5500_reset_asserted);

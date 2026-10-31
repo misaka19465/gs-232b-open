@@ -76,6 +76,7 @@ static gs232b_error_t commit(gs232b_output_manager_t *manager,
         manager->driver.ctx, manager->state.shadow_byte, frame->speed_permille);
     output->last_error = error;
     output->known = error == GS232B_OK;
+    output->speed_voltage_confirmed = false;
     if (error != GS232B_OK) {
         /* NOTE: SPI/PWM 可能部分完成；不能用旧的方向历史推断物理状态，
          * 也不能在后续 reset、PWM 更新或 tick 时重新执行失败的运动。 */

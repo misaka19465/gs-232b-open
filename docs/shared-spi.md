@@ -2,7 +2,7 @@
 
 板级入口见 [`esp_shared_spi.h`](../include/gs232b/esp_shared_spi.h)，可替换平台端口和完整提交协议见 [`shared_spi.h`](../include/gs232b/shared_spi.h)，复位协调接口见 [`w5500_reset.h`](../include/gs232b/w5500_reset.h)。这些适配器已加入固件组件；`app_main` 仍是构建基线，应用任务、netif、会话和网络恢复服务通过下面的接口集成。
 
-构建使用 `espressif32@8.0.0`，实际解析为 ESP-IDF **6.1.0**（PlatformIO framework 包 `4.60100.0`）。IDF 6 已将 W5500 移至官方组件，工程在 `src/idf_component.yml` 和 `dependencies.lock` 锁定 `espressif/w5500 2.0.1`、`espressif/wiznet_common 1.1.0`。无需为此更改 `sdkconfig.defaults`。
+构建使用 `espressif32@8.0.0`，实际解析为 ESP-IDF **6.1.0**（PlatformIO framework 包 `4.60100.0`）。IDF 6 已将 W5500 移至官方组件，工程在 `src/idf_component.yml` 和 `dependencies.lock` 锁定 `espressif/w5500 2.0.1`、`espressif/wiznet_common 1.1.0`。`sdkconfig.defaults` 将调试控制台固定到 USB Serial/JTAG，避免 UART0 初始化争用 GPIO20。
 
 ## 总线和提交边界
 
@@ -14,7 +14,7 @@
 | STCP | GPIO2，发送前低，完成后高→低；每次电平设置后保持至少 1µs |
 | 时钟 | 两个 device 使用相同频率，建议入口参数 `GS232B_BOARD_SPI_CLOCK_HZ`（1MHz），适配器拒绝更高值；仍需板验 |
 | 入口锁 | 两个 device 共用 FreeRTOS mutex，默认建议等待 50ms；只执行同步 SPI，无异步排队 |
-| PWM | GPIO20，LEDC 20kHz/10bit，0..1000 换算到 0..1023 |
+| PWM | GPIO20，独立 [LEDC 适配器](ledc-speed.md)，20kHz/10bit，0..1000‰ 换算到 0..1024（含合法满占空比） |
 
 成功的提交轨迹为：
 

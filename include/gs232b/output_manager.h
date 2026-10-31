@@ -14,7 +14,7 @@ typedef struct {
 
 typedef struct {
     gs232b_output_frame_t requested; /* NOTE: 最新接纳的请求，包含等待中的方向。 */
-    gs232b_output_snapshot_t output; /* NOTE: 最近提交尝试及最后成功的实际镜像。 */
+    gs232b_output_snapshot_t output; /* NOTE: 提交尝试及成功请求镜像，不是电压读回。 */
     uint8_t shadow_byte; /* NOTE: 最近提交尝试的字节；known=false 时不是物理读回值。 */
     bool reversal_waiting[GS232B_AXIS_COUNT];
 } gs232b_output_manager_snapshot_t;

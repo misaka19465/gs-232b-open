@@ -11,6 +11,55 @@ enable_testing()
 
 find_package(Threads REQUIRED)
 
+add_executable(esp_ledc_tests
+    esp_ledc_tests.c
+    ../fakes/esp_idf/ledc_api.c
+    ../../src/platform/esp_ledc.c
+)
+target_include_directories(esp_ledc_tests PRIVATE ../../include ../fakes/esp_idf)
+target_compile_definitions(esp_ledc_tests PRIVATE ESP_PLATFORM)
+set_target_properties(esp_ledc_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(esp_ledc_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME esp_ledc COMMAND esp_ledc_tests)
+set_tests_properties(esp_ledc PROPERTIES TIMEOUT 5)
+
+add_test(NAME ledc_rejects_uart0_console COMMAND ${CMAKE_C_COMPILER}
+    -std=c11 -DESP_PLATFORM -DCONFIG_ESP_CONSOLE_UART=1 -DCONFIG_ESP_CONSOLE_UART_NUM=0
+    -I${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    -I${CMAKE_CURRENT_SOURCE_DIR}/../fakes/esp_idf
+    -c ${CMAKE_CURRENT_SOURCE_DIR}/../../src/platform/esp_ledc.c
+    -o ${CMAKE_CURRENT_BINARY_DIR}/ledc_uart0_rejected.o)
+set_tests_properties(ledc_rejects_uart0_console PROPERTIES WILL_FAIL TRUE TIMEOUT 5)
+
+add_executable(speed_tests speed_tests.c ../../src/core/speed.c)
+target_include_directories(speed_tests PRIVATE ../../include)
+set_target_properties(speed_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(speed_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME speed_levels COMMAND speed_tests)
+set_tests_properties(speed_levels PROPERTIES TIMEOUT 5)
+
+add_executable(esp_ledc_output_tests
+    esp_ledc_output_tests.c ../fakes/esp_idf/ledc_api.c ../fakes/spi_bus.c
+    ../../src/platform/esp_ledc.c ../../src/platform/shared_spi.c
+    ../../src/core/types.c ../../src/core/ports.c ../../src/core/output_manager.c
+)
+target_include_directories(esp_ledc_output_tests PRIVATE ../../include ../fakes/esp_idf ../fakes)
+target_compile_definitions(esp_ledc_output_tests PRIVATE ESP_PLATFORM)
+target_link_libraries(esp_ledc_output_tests PRIVATE Threads::Threads)
+set_target_properties(esp_ledc_output_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(esp_ledc_output_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME esp_ledc_outputs COMMAND esp_ledc_output_tests)
+set_tests_properties(esp_ledc_outputs PROPERTIES TIMEOUT 5)
+
 foreach(adc_test IN ITEMS esp_adc_tests esp_adc_motion_tests)
     add_executable(${adc_test}
         ${adc_test}.c
@@ -24,6 +73,7 @@ foreach(adc_test IN ITEMS esp_adc_tests esp_adc_motion_tests)
         ../../src/core/persistence.c
         ../../src/core/output_manager.c
         ../../src/core/motion.c
+        ../../src/core/speed.c
         ../../src/core/motion_control.c
         ../../src/core/motion_feedback.c
     )
@@ -238,6 +288,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/persistence.c
         ../../src/core/output_manager.c
         ../../src/core/motion.c
+        ../../src/core/speed.c
         ../../src/core/motion_control.c
         ../../src/core/motion_feedback.c
         ../../src/core/line_parser.c

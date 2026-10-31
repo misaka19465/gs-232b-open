@@ -2,6 +2,7 @@
 #define GS232B_ESP_SHARED_SPI_H
 
 #include "gs232b/shared_spi.h"
+#include "gs232b/esp_ledc.h"
 
 #ifdef ESP_PLATFORM
 #include "driver/spi_master.h"
@@ -20,7 +21,7 @@ typedef struct {
     SemaphoreHandle_t mutex;
     TickType_t timeout_ticks;
     bool host_open;
-    bool pwm_open;
+    gs232b_esp_ledc_t pwm;
 } gs232b_esp_shared_spi_t;
 
 /**

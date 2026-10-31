@@ -101,6 +101,8 @@ typedef struct {
     /* NOTE: 初始状态和提交失败后均为 false。停止请求不能证明输出已停止；
      * true 仅表示已提交，不能表示已从外部测量确认。 */
     bool known;
+    /* NOTE: 现板没有 SPEED 电压反馈，始终为 false；known 不能替代电压确认。 */
+    bool speed_voltage_confirmed;
 } gs232b_output_snapshot_t;
 
 void gs232b_output_snapshot_init(gs232b_output_snapshot_t *snapshot);

@@ -1,6 +1,6 @@
 # 双轴运动控制核心与仿真验收
 
-接口见 [`motion.h`](../include/gs232b/motion.h)。核心代码不依赖 ESP-IDF、动态内存或墙上时钟，已加入固件组件和原生测试构建。[官方 GS dispatcher](gs-dispatcher.md)已接入完整命令分发、查询及会话响应。当前 `app_main` 仍是构建基线；实际板级 SPI/PWM/ADC 驱动和运动任务需在后续集成中接入这些接口。
+接口见 [`motion.h`](../include/gs232b/motion.h)。核心代码不依赖 ESP-IDF、动态内存或墙上时钟，已加入固件组件和原生测试构建。[官方 GS dispatcher](gs-dispatcher.md)已接入完整命令分发、查询及会话响应。[共享 SPI/595/PWM 适配器和外置复位协调接口](shared-spi.md)也已实现。当前 `app_main` 仍是构建基线；ADC、应用任务和网络生命周期服务需在后续集成中接入这些接口。
 
 ## 状态与动作
 

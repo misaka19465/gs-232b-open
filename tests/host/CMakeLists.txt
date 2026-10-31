@@ -9,6 +9,29 @@ endif()
 
 enable_testing()
 
+find_package(Threads REQUIRED)
+
+foreach(spi_test IN ITEMS shared_spi_tests w5500_reset_tests)
+    add_executable(${spi_test}
+        ${spi_test}.c
+        ../fakes/spi_bus.c
+        ../../src/platform/shared_spi.c
+        ../../src/platform/w5500_reset.c
+        ../../src/core/output_manager.c
+        ../../src/core/types.c
+        ../../src/core/ports.c
+    )
+    target_include_directories(${spi_test} PRIVATE ../../include ../fakes)
+    target_link_libraries(${spi_test} PRIVATE Threads::Threads)
+    set_target_properties(${spi_test} PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${spi_test} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME ${spi_test} COMMAND ${spi_test})
+    set_tests_properties(${spi_test} PROPERTIES TIMEOUT 15)
+endforeach()
+
 add_executable(app_main_smoke app_main_smoke.c ../../src/app_main.c)
 set_target_properties(app_main_smoke PROPERTIES
     C_STANDARD 11

@@ -366,17 +366,17 @@ Wi-Fi STA → lwIP ────────┘                        ↓
 
 UART/HTTP 回调只拷贝有界数据、登记事件，不等待电机到位，不直接驱动 GPIO，不写 Flash。运动循环负责限位、目标、减速、超时；输出管理器统一处理方向、PWM 和 W5500 reset shadow。配置服务在停止状态下处理 NVS 事务。传输适配器持有 `session_id + generation`，文件描述符复用或重连也不能复用旧所有权。普通响应按该会话请求顺序发送；优先停止动作可以先执行，但不能把 S 的响应插到同一会话先前查询回复之前。
 
-输出管理核心见 [`output_manager.h`](../include/gs232b/output_manager.h)。每组 595/PWM 只建立一个管理器，由同一任务或同一外部锁串行调用。运动层通过其 `gs232b_output_t` 端口提交完整请求；底层 `gs232b_output_driver_t` 只接收管理器编码后的完整 shadow byte 和 0..1000 的 PWM 请求。方向继续使用 `gs232b_az_direction_t`、`gs232b_el_direction_t`，不接收上层位图。初始化会立即提交 `0x00`、PWM=0；具体 SPI acquire/发送/锁存和 LEDC 更新由板级适配器实现。
+输出管理核心见 [`output_manager.h`](../include/gs232b/output_manager.h)。每组 595/PWM 只建立一个管理器，由同一任务或同一外部锁串行调用。运动层通过其 `gs232b_output_t` 端口提交完整请求；底层 `gs232b_output_driver_t` 只接收管理器编码后的完整 shadow byte 和 0..1000 的 PWM 请求。方向继续使用 `gs232b_az_direction_t`、`gs232b_el_direction_t`，不接收上层位图。初始化会立即提交 `0x00`、PWM=0；具体 SPI acquire/发送/锁存和 LEDC 更新已由[共享 SPI 板级适配器](shared-spi.md)实现。
 
 两轴分别记录上次运动方向与成功清方向的完成时间。直接反向或先 STOP 再反向均须等满非零换向间隔；间隔由调用方提供控制箱实测值，使用单调时间差判断，避免期限加法溢出。初始化及输出失败恢复后的方向历史未知，首次运动同样等待。`tick` 非阻塞推进等待；替换或取消待执行方向不会积压旧动作。重复请求、reset 和 PWM 更新不延长已确认的停顿；单独更新 reset/PWM 也不会顺带使能到期的待执行方向。方位停止或等待时提交 PWM=0，PWM 请求可保留供下一次运动使用；停止动作始终清方向位。
 
-快照分别提供最新接纳请求、最近提交尝试、最后成功镜像、shadow 与两轴等待标志。任何底层提交失败都会置 `known=false`、撤销两轴待执行方向并清 PWM 请求，保留错误及最后成功镜像；`tick` 不自动重试，未知状态下拒绝新的运动。故障处理层显式调用 `stop_all` 重试全停，只有提交成功后才能接纳新的运动；未知期间的 reset/PWM 更新也只会提交全停镜像。`known` 只表示完整提交成功，不表示外部测量确认。W5500 复位脉宽、恢复等待及运行中网络驱动停启仍由网络层协调。
+快照分别提供最新接纳请求、最近提交尝试、最后成功镜像、shadow 与两轴等待标志。任何底层提交失败都会置 `known=false`、撤销两轴待执行方向并清 PWM 请求，保留错误及最后成功镜像；`tick` 不自动重试，未知状态下拒绝新的运动。故障处理层显式调用 `stop_all` 重试全停，只有提交成功后才能接纳新的运动；未知期间的 reset/PWM 更新也只会提交全停镜像。`known` 只表示完整提交成功，不表示外部测量确认。[外置复位协调器](shared-spi.md)负责脉宽、恢复等待和 SPI 门控，网络层通过有界生命周期回调停用旧驱动并重新探测/恢复网络。
 
 ### 4.2 W5500 走标准 ESP-IDF 网络栈
 
 选择 W5500 的 ESP-IDF Ethernet MAC/PHY 驱动 + `esp_netif` + lwIP，与 Wi-Fi 共用标准 sockets 和 HTTP/WebSocket 服务。不另用 WIZnet 硬件 TCP socket 库建立另一套网络栈；W5500 在此作为以太网接口使用，其“8 个硬件 socket”不直接等于应用的 WebSocket 会话上限。
 
-保留当前 ESP-IDF / PlatformIO 工程结构。`platformio.ini` 固定 `espressif32@8.0.0`，开始实现前应记录实际解析到的 ESP-IDF、W5500 驱动与组件锁定版本，再核对 API/Kconfig。本次不修改依赖、sdkconfig 或构建文件。
+保留当前 ESP-IDF / PlatformIO 工程结构。`platformio.ini` 固定 `espressif32@8.0.0`，实际解析到 ESP-IDF 6.1.0。W5500 已独立为官方组件，`src/idf_component.yml` 和 `dependencies.lock` 锁定 W5500 2.0.1、wiznet_common 1.1.0；API、Kconfig 及共享 SPI 限制见[适配说明](shared-spi.md)。
 
 W5500 和 Wi-Fi STA 均独立拥有 netif、MAC、IP、DHCP 状态及重连状态，不复制同一 MAC。W5500 MAC 采用芯片基准 MAC 的正式分配/派生途径，确保本设备各接口唯一且重启稳定，不依赖模块预置 MAC。
 

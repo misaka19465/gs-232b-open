@@ -9,8 +9,8 @@ idf_component_register(
          "core/gs_dispatcher.c" "core/gs_commands.c" "core/gs_replies.c"
          "platform/shared_spi.c" "platform/w5500_reset.c"
          "platform/esp_shared_spi.c" "platform/esp_w5500.c" "platform/esp_adc.c"
-         "platform/esp_ledc.c"
+         "platform/esp_ledc.c" "platform/esp_uart.c" "platform/esp_uart_rx.c"
     INCLUDE_DIRS "." "../include"
-    REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_eth esp_timer esp_adc
+    REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_driver_uart esp_eth esp_timer esp_adc
              nvs_flash w5500
 )

@@ -237,6 +237,48 @@ static void drop_session_requests(gs232b_control_t *control,
     control->request_bytes_used = used;
 }
 
+gs232b_error_t gs232b_control_resync_input(gs232b_control_t *control,
+                                          gs232b_session_key_t session)
+{
+    if (!gs232b_control_valid(control)) { return GS232B_ERROR_INVALID_ARGUMENT; }
+    gs232b_control_session_t *slot = gs232b_control_find(control, session);
+    if (slot == NULL) { return GS232B_ERROR_STALE_SESSION; }
+    /* NOTE: 即使解析器尚未收到首字节，上游丢失的前缀也可能属于运动命令。 */
+    slot->parser.active = true;
+    slot->parser.last_byte_at_us = control->clock.now_us(control->clock.ctx);
+    slot->parser.swallow_lf = false;
+    gs232b_line_parser_invalidate(&slot->parser);
+    return GS232B_OK;
+}
+
+gs232b_error_t gs232b_control_input_lost(gs232b_control_t *control,
+                                        gs232b_session_key_t session)
+{
+    if (!gs232b_control_valid(control)) { return GS232B_ERROR_INVALID_ARGUMENT; }
+    gs232b_control_session_t *slot = gs232b_control_find(control, session);
+    if (slot == NULL) { return GS232B_ERROR_STALE_SESSION; }
+    gs232b_error_t error = GS232B_OK;
+    if (gs232b_session_key_equal(control->owner, session)) {
+        error = gs232b_control_stop_now(control, GS232B_CONTROL_ALL_AXES, true);
+    } else {
+        drop_session_requests(control, session);
+        slot->pending_requests = 0;
+        if (gs232b_session_key_equal(control->input_reservation.session, session)) {
+            control->input_reservation = (gs232b_command_context_t){0};
+            control->upload_queued = false;
+        }
+    }
+    gs232b_control_resync_input(control, session);
+    gs232b_control_request_t notice = {
+        .context = {session, control->epoch}, .kind = GS232B_LINE_GS
+    };
+    if (control->executor.submitted != NULL) {
+        control->executor.submitted(control->executor.ctx, &notice);
+    }
+    gs232b_control_complete(control, &notice, GS232B_ERROR_IO, 1);
+    return error;
+}
+
 gs232b_error_t gs232b_control_session_close(gs232b_control_t *control,
                                            gs232b_session_key_t session)
 {

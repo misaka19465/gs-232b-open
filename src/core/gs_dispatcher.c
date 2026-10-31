@@ -158,6 +158,24 @@ gs232b_error_t gs232b_dispatcher_feed(gs232b_dispatcher_t *dispatcher,
     return error != GS232B_OK ? error : send_error;
 }
 
+gs232b_error_t gs232b_dispatcher_resync_input(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session)
+{
+    return dispatcher == NULL || !dispatcher->initialized ? GS232B_ERROR_INVALID_ARGUMENT :
+        gs232b_control_resync_input(&dispatcher->control, session);
+}
+
+gs232b_error_t gs232b_dispatcher_input_lost(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session)
+{
+    if (dispatcher == NULL || !dispatcher->initialized) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    const gs232b_error_t error = gs232b_control_input_lost(&dispatcher->control, session);
+    const gs232b_error_t send_error = gs232b_gs_flush(dispatcher);
+    return error != GS232B_OK ? error : send_error;
+}
+
 gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher)
 {
     if (dispatcher == NULL || !dispatcher->initialized) {

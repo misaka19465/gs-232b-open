@@ -69,6 +69,12 @@ gs232b_error_t gs232b_dispatcher_capture(gs232b_dispatcher_t *dispatcher,
  */
 gs232b_error_t gs232b_dispatcher_feed(gs232b_dispatcher_t *dispatcher,
     gs232b_command_context_t context, const uint8_t *bytes, size_t size);
+/** @brief 将传输丢字节送入通信故障清理，并按来源顺序刷出一次协议错误。 */
+gs232b_error_t gs232b_dispatcher_input_lost(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session);
+/** @brief 上游旧 epoch 输入屏障：静默丢弃来源半行和后缀至下一次 CR。 */
+gs232b_error_t gs232b_dispatcher_resync_input(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session);
 /** @brief 优先停止、推进运动/序列/校准和一条普通请求，按会话顺序发送响应。 */
 gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher);
 

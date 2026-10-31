@@ -212,6 +212,17 @@ gs232b_error_t gs232b_control_feed(gs232b_control_t *control,
                                   gs232b_command_context_t context,
                                   const uint8_t *bytes, size_t size);
 
+/** @brief 丢弃来源半行及后缀直到下一个 CR；用于上游旧 epoch 输入屏障，不报错。 */
+gs232b_error_t gs232b_control_resync_input(gs232b_control_t *control,
+                                          gs232b_session_key_t session);
+/**
+ * @brief 报告确定丢字节或接收溢出；来源是控制者时立即全停、清序列/校准并撤权。
+ * @note 非控制者只清自身排队/半行/上传预约。每次调用登记一次有序协议错误，
+ *       然后丢弃至下一个 CR；传输层须合并同一故障事件，且与所有控制 API 串行。
+ */
+gs232b_error_t gs232b_control_input_lost(gs232b_control_t *control,
+                                        gs232b_session_key_t session);
+
 /**
  * @brief 显式申请，不抢占现有控制者；相同控制者重复申请可刷新空闲起点。
  * @note 要求活动上下文及无待处理停止；初次取权要求执行端空闲且已知全停。

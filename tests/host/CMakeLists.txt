@@ -34,6 +34,26 @@ add_test(NAME ledc_rejects_uart0_console COMMAND ${CMAKE_C_COMPILER}
     -o ${CMAKE_CURRENT_BINARY_DIR}/ledc_uart0_rejected.o)
 set_tests_properties(ledc_rejects_uart0_console PROPERTIES WILL_FAIL TRUE TIMEOUT 5)
 
+foreach(console IN ITEMS uart mirror no_usb)
+    if(console STREQUAL "uart")
+        set(console_flags -DCONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=1
+            -DCONFIG_ESP_CONSOLE_SECONDARY_NONE=1 -DCONFIG_ESP_CONSOLE_UART=1)
+    elseif(console STREQUAL "mirror")
+        set(console_flags -DCONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=1
+            -DCONFIG_ESP_CONSOLE_SECONDARY_NONE=0)
+    else()
+        set(console_flags -DCONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=0
+            -DCONFIG_ESP_CONSOLE_SECONDARY_NONE=1)
+    endif()
+    add_test(NAME uart_rejects_${console}_console COMMAND ${CMAKE_C_COMPILER}
+        -std=c11 -DESP_PLATFORM ${console_flags}
+        -I${CMAKE_CURRENT_SOURCE_DIR}/../../include
+        -I${CMAKE_CURRENT_SOURCE_DIR}/../fakes/esp_idf
+        -c ${CMAKE_CURRENT_SOURCE_DIR}/../../src/platform/esp_uart.c
+        -o ${CMAKE_CURRENT_BINARY_DIR}/uart_${console}_rejected.o)
+    set_tests_properties(uart_rejects_${console}_console PROPERTIES WILL_FAIL TRUE TIMEOUT 5)
+endforeach()
+
 add_executable(speed_tests speed_tests.c ../../src/core/speed.c)
 target_include_directories(speed_tests PRIVATE ../../include)
 set_target_properties(speed_tests PROPERTIES
@@ -276,7 +296,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              sequence_lifecycle_tests sequence_fault_tests
                              calibration_tests calibration_lifecycle_tests
                              gs_commands_tests gs_sessions_tests gs_calibration_tests
-                             gs_sequences_tests)
+                             gs_sequences_tests esp_uart_tests transport_fault_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -306,6 +326,15 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/gs_replies.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
+    if(motion_test STREQUAL "esp_uart_tests")
+        target_sources(${motion_test} PRIVATE ../../src/platform/esp_uart.c
+            ../../src/platform/esp_uart_rx.c ../fakes/esp_idf/uart_api.c
+            ../fakes/esp_idf/uart_rtos.c)
+        target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf ../../src/platform)
+        target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM
+            CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=1 CONFIG_ESP_CONSOLE_SECONDARY_NONE=1)
+        target_link_libraries(${motion_test} PRIVATE Threads::Threads)
+    endif()
     set_target_properties(${motion_test} PROPERTIES
         C_STANDARD 11
         C_STANDARD_REQUIRED YES

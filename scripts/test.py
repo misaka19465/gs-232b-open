@@ -17,7 +17,7 @@ def run(*command: str) -> None:
 
 
 def check_target_console() -> None:
-    """Verify both generated images keep the UART console off GPIO20."""
+    """Verify application and bootloader logs use native USB exclusively."""
     build = ROOT / ".pio" / "build" / ENVIRONMENT
     for config in (build / "config/sdkconfig.json", build / "bootloader/config/sdkconfig.json"):
         settings = json.loads(config.read_text())
@@ -25,6 +25,8 @@ def check_target_console() -> None:
             settings.get("ESP_CONSOLE_USB_SERIAL_JTAG") is True
             and settings.get("ESP_CONSOLE_SECONDARY_NONE") is True
             and not settings.get("ESP_CONSOLE_UART")
+            and not settings.get("ESP_CONSOLE_UART_DEFAULT")
+            and not settings.get("ESP_CONSOLE_UART_CUSTOM")
             and settings.get("ESP_CONSOLE_UART_NUM") == -1
         ):
             raise RuntimeError(f"{config}: console must use USB Serial/JTAG without UART")

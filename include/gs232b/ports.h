@@ -26,8 +26,9 @@ gs232b_error_t gs232b_sampler_read(const gs232b_sampler_t *sampler,
 
 typedef struct {
     void *ctx;
-    /* NOTE: 通过唯一的输出管理器应用完整镜像。返回错误时物理状态可能未知，
-     * 包括 PWM/SPI 只完成部分更新的情况。反转时序及故障/停止策略由运动层负责。 */
+    /* NOTE: 通过唯一的输出管理器接纳完整请求。OK 可能仍在换向等待，
+     * 实际提交状态由管理器快照提供；运动层负责故障/停止策略。驱动返回错误
+     * 时物理状态可能未知，包括 PWM/SPI 只完成部分更新的情况。 */
     gs232b_error_t (*apply)(void *ctx, const gs232b_output_frame_t *frame);
 } gs232b_output_t;
 

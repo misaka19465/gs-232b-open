@@ -44,6 +44,28 @@ endif()
 add_test(NAME core_contracts COMMAND core_contract_tests)
 set_tests_properties(core_contracts PROPERTIES TIMEOUT 5)
 
+add_executable(output_manager_tests
+    output_manager_tests.c
+    ../../src/core/types.c
+    ../../src/core/ports.c
+    ../../src/core/output_manager.c
+)
+target_include_directories(output_manager_tests PRIVATE
+    ../../include
+    ../fakes
+)
+set_target_properties(output_manager_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(output_manager_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_test(NAME output_manager COMMAND output_manager_tests)
+set_tests_properties(output_manager PROPERTIES TIMEOUT 5)
+
 add_executable(line_parser_tests
     line_parser_tests.c
     ../../src/core/line_parser.c

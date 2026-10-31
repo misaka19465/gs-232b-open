@@ -48,7 +48,15 @@ void gs232b_control_complete(gs232b_control_t *control,
                               gs232b_error_t error, uint32_t count)
 {
     if (control->executor.complete != NULL) {
-        control->executor.complete(control->executor.ctx, request, error, count);
+        gs232b_control_request_t notice = *request;
+        gs232b_position_command_t position;
+        if (request->position != NULL) {
+            position = *request->position;
+            position.angles = NULL;
+            notice.position = &position;
+            notice.position_plan = NULL;
+        }
+        control->executor.complete(control->executor.ctx, &notice, error, count);
     }
 }
 
@@ -60,6 +68,8 @@ gs232b_error_t gs232b_control_invalidate(gs232b_control_t *control)
         control->sessions[i].pending_requests = 0;
         gs232b_line_parser_invalidate(&control->sessions[i].parser);
     }
+    control->input_reservation = (gs232b_command_context_t){0};
+    control->upload_queued = false;
     const gs232b_error_t error = gs232b_command_epoch_advance(&control->epoch);
     if (error != GS232B_OK) {
         control->epoch_exhausted = true;
@@ -71,7 +81,7 @@ gs232b_error_t gs232b_control_stop_now(gs232b_control_t *control,
                                       uint8_t mask, bool revoke_owner)
 {
     const gs232b_error_t epoch_error = gs232b_control_invalidate(control);
-    control->executor.cancel(control->executor.ctx);
+    gs232b_control_cancel(control);
     if (revoke_owner || epoch_error != GS232B_OK) {
         control->owner = (gs232b_session_key_t){0};
     }
@@ -91,7 +101,7 @@ gs232b_error_t gs232b_control_observe_fault(gs232b_control_t *control)
     if (error != GS232B_OK || activity.faulted) {
         if (!control->fault_seen) {
             gs232b_control_invalidate(control);
-            control->executor.cancel(control->executor.ctx);
+            gs232b_control_cancel(control);
             control->owner = (gs232b_session_key_t){0};
             control->idle_timer_running = false;
             if (error != GS232B_OK) {
@@ -113,9 +123,10 @@ gs232b_error_t gs232b_control_init(gs232b_control_t *control, gs232b_clock_t clo
                                   uint8_t *request_bytes, size_t request_capacity)
 {
     if (control == NULL || clock.now_us == NULL || request_bytes == NULL ||
-        request_capacity < GS232B_GS_LINE_MAX_BYTES || executor.validate == NULL ||
+        request_capacity < GS232B_LINE_STORAGE_BYTES || executor.validate == NULL ||
         executor.execute == NULL || executor.cancel == NULL || executor.stop == NULL ||
-        executor.tick == NULL || executor.snapshot == NULL) {
+        executor.tick == NULL || executor.snapshot == NULL ||
+        executor.position_context == NULL) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     gs232b_control_activity_t activity = {0};
@@ -146,7 +157,7 @@ gs232b_error_t gs232b_control_session_open(gs232b_control_t *control,
         *session = (gs232b_session_key_t){0};
     }
     if (!gs232b_control_valid(control) || session == NULL || line_storage == NULL ||
-        capacity < GS232B_GS_LINE_MAX_BYTES || transport < GS232B_TRANSPORT_UART1 ||
+        capacity < GS232B_LINE_STORAGE_BYTES || transport < GS232B_TRANSPORT_UART1 ||
         transport > GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
@@ -157,11 +168,17 @@ gs232b_error_t gs232b_control_session_open(gs232b_control_t *control,
         }
         const uint64_t generation = slot->generation + 1;
         memset(slot, 0, sizeof(*slot));
+        slot->control = control;
         slot->generation = generation;
         slot->key = (gs232b_session_key_t){(uint32_t)i + 1, generation};
         slot->transport = transport;
         slot->connected = true;
-        gs232b_line_parser_init(&slot->parser, line_storage, capacity);
+        const gs232b_line_upload_t upload = {
+            .ctx = slot,
+            .begin = gs232b_control_upload_begin,
+            .abort = gs232b_control_upload_abort
+        };
+        gs232b_line_parser_init(&slot->parser, line_storage, capacity, upload);
         *session = slot->key;
         return GS232B_OK;
     }
@@ -204,6 +221,10 @@ gs232b_error_t gs232b_control_session_close(gs232b_control_t *control,
         error = gs232b_control_stop_now(control, GS232B_CONTROL_ALL_AXES, true);
     } else {
         drop_session_requests(control, session);
+        if (gs232b_session_key_equal(control->input_reservation.session, session)) {
+            control->input_reservation = (gs232b_command_context_t){0};
+            control->upload_queued = false;
+        }
     }
     slot->pending_requests = 0;
     slot->parser = (gs232b_line_parser_t){0};
@@ -251,6 +272,10 @@ gs232b_error_t gs232b_control_take(gs232b_control_t *control,
         !gs232b_session_key_equal(control->owner, context.session)) {
         return GS232B_ERROR_NOT_OWNER;
     }
+    error = gs232b_control_check_reservation(control, context.session);
+    if (error != GS232B_OK) {
+        return error;
+    }
     gs232b_control_activity_t activity = {0};
     error = control->executor.snapshot(control->executor.ctx, &activity);
     if (error != GS232B_OK || activity.faulted) {
@@ -282,12 +307,15 @@ gs232b_error_t gs232b_control_release(gs232b_control_t *control,
     if (control->stop_mask != 0) {
         return GS232B_ERROR_BUSY;
     }
+    if (gs232b_session_key_valid(control->input_reservation.session)) {
+        return GS232B_ERROR_BUSY;
+    }
     gs232b_control_activity_t activity = {0};
     error = control->executor.snapshot(control->executor.ctx, &activity);
     if (error != GS232B_OK || !gs232b_control_idle(&activity)) {
         return error != GS232B_OK ? error : GS232B_ERROR_BUSY;
     }
-    control->executor.cancel(control->executor.ctx);
+    gs232b_control_cancel(control);
     control->owner = (gs232b_session_key_t){0};
     control->idle_timer_running = false;
     return gs232b_control_invalidate(control);
@@ -347,5 +375,7 @@ gs232b_error_t gs232b_control_snapshot(const gs232b_control_t *control,
     snapshot->idle_timer_running = control->idle_timer_running;
     snapshot->idle_since_us = control->idle_since_us;
     snapshot->epoch_exhausted = control->epoch_exhausted;
+    snapshot->input_reservation = control->input_reservation.session;
+    snapshot->upload_queued = control->upload_queued;
     return GS232B_OK;
 }

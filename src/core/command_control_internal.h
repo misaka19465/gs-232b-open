@@ -39,5 +39,18 @@ gs232b_error_t gs232b_control_enqueue(gs232b_control_t *control,
 gs232b_error_t gs232b_control_dispatch_one(gs232b_control_t *control);
 /** @brief 无输入时推进每会话半行超时，错误只回来源。 */
 void gs232b_control_expire_lines(gs232b_control_t *control);
+/** @brief 从 M/W 首字母预约唯一 staging；不取得控制权或改变输出。 */
+gs232b_error_t gs232b_control_upload_begin(void *ctx, uint16_t **angles);
+/** @brief 释放来源半行的输入预约；不改变旧 active 或其他会话的预约。 */
+void gs232b_control_upload_abort(void *ctx);
+/** @brief 检查写请求是否被其他会话的输入预约阻挡。 */
+gs232b_error_t gs232b_control_check_reservation(
+    const gs232b_control_t *control, gs232b_session_key_t session);
+/** @brief 完整校验数字命令、当前活动状态和坐标，生成首点计划。 */
+gs232b_error_t gs232b_control_validate_position(
+    gs232b_control_t *control, const gs232b_position_command_t *command,
+    gs232b_position_context_t *context, gs232b_position_plan_t *plan);
+/** @brief 清有效序列和执行端任务，不提交输出。 */
+void gs232b_control_cancel(gs232b_control_t *control);
 
 #endif

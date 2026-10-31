@@ -69,6 +69,7 @@ set_tests_properties(output_manager PROPERTIES TIMEOUT 5)
 add_executable(line_parser_tests
     line_parser_tests.c
     ../../src/core/line_parser.c
+    ../../src/core/position_parser.c
 )
 target_include_directories(line_parser_tests PRIVATE ../../include)
 set_target_properties(line_parser_tests PROPERTIES
@@ -168,7 +169,8 @@ add_test(NAME persistence COMMAND persistence_tests)
 set_tests_properties(persistence PROPERTIES TIMEOUT 5)
 
 foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tests
-                             command_invalidation_tests)
+                             command_invalidation_tests sequence_upload_tests
+                             sequence_commit_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -182,6 +184,9 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/motion_control.c
         ../../src/core/motion_feedback.c
         ../../src/core/line_parser.c
+        ../../src/core/position_parser.c
+        ../../src/core/sequence_store.c
+        ../../src/core/command_upload.c
         ../../src/core/command_control.c
         ../../src/core/command_input.c
         ../../src/core/command_dispatch.c

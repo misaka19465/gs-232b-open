@@ -180,16 +180,17 @@ static bool test_byte_pool_exhaustion_and_epoch_overflow(void)
         }
         CHECK(command_feed(&fixture, 1, "\r") != GS232B_OK);
     }
-    /* 使用语法合法的长 M 序列耗尽共享池，停止不消耗该池。 */
-    for (size_t line = 0; line < 3; ++line) {
+    /* 长序列仅持有 staging；第二条不能覆盖等待执行的第一条。 */
+    for (size_t line = 0; line < 2; ++line) {
         CHECK(command_feed(&fixture, 0, "M010") == GS232B_OK);
         for (size_t i = 0; i < 3800; ++i) {
             CHECK(command_feed(&fixture, 0, " 150") == GS232B_OK);
         }
-        const gs232b_error_t expected = line < 2 ? GS232B_OK : GS232B_ERROR_RESOURCE_EXHAUSTED;
+        const gs232b_error_t expected = line == 0 ? GS232B_OK : GS232B_ERROR_BUSY;
         CHECK(command_feed(&fixture, 0, "\r") == expected);
     }
-    CHECK(fixture.control.request_count == 2);
+    CHECK(fixture.control.request_count == 1);
+    CHECK(fixture.control.request_bytes_used == 0);
     CHECK(command_run(&fixture, 1, "S\r"));
     CHECK(stopped(&fixture.sim));
     CHECK(fixture.control.request_bytes_used == 0);

@@ -19,11 +19,15 @@ typedef struct {
     gs232b_line_error_t error;
     size_t size;
     uint8_t bytes[COLLECTOR_LINE_CAPACITY];
+    bool is_position;
+    gs232b_position_command_t position;
+    uint16_t angles[6];
 } collected_event_t;
 
 typedef struct {
     collected_event_t events[COLLECTOR_EVENT_CAPACITY];
     size_t count;
+    uint16_t staging[GS232B_POSITION_MAX_ANGLES];
 } collector_t;
 
 static void collect_event(void *ctx, const gs232b_line_event_t *event)
@@ -37,16 +41,40 @@ static void collect_event(void *ctx, const gs232b_line_event_t *event)
     copy->kind = event->kind;
     copy->error = event->error;
     copy->size = event->size;
+    copy->is_position = event->position != NULL;
+    if (event->position != NULL) {
+        copy->position = *event->position;
+        size_t angles = copy->position.point_count *
+                        (copy->position.command == 'W' ? 2U : 1U);
+        if (angles <= sizeof(copy->angles) / sizeof(copy->angles[0])) {
+            memcpy(copy->angles, copy->position.angles, angles * sizeof(uint16_t));
+        }
+    }
     if (event->type == GS232B_LINE_EVENT_COMMIT && event->size <= sizeof(copy->bytes)) {
         memcpy(copy->bytes, event->bytes, event->size);
     }
+}
+
+static gs232b_error_t begin_upload(void *ctx, uint16_t **angles)
+{
+    *angles = ((collector_t *)ctx)->staging;
+    return GS232B_OK;
+}
+
+static void abort_upload(void *ctx)
+{
+    (void)ctx;
 }
 
 static bool parser_init(gs232b_line_parser_t *parser, uint8_t *storage,
                         collector_t *collector)
 {
     memset(collector, 0, sizeof(*collector));
-    return gs232b_line_parser_init(parser, storage, GS232B_GS_LINE_MAX_BYTES) == GS232B_OK;
+    const gs232b_line_upload_t upload = {
+        .ctx = collector, .begin = begin_upload, .abort = abort_upload
+    };
+    return gs232b_line_parser_init(parser, storage, GS232B_LINE_STORAGE_BYTES,
+                                   upload) == GS232B_OK;
 }
 
 static bool events_equal(const collector_t *left, const collector_t *right)
@@ -58,9 +86,17 @@ static bool events_equal(const collector_t *left, const collector_t *right)
         const collected_event_t *a = &left->events[index];
         const collected_event_t *b = &right->events[index];
         if (a->type != b->type || a->kind != b->kind || a->error != b->error ||
-            a->size != b->size ||
+            a->size != b->size || a->is_position != b->is_position ||
             (a->type == GS232B_LINE_EVENT_COMMIT && a->size <= sizeof(a->bytes) &&
              memcmp(a->bytes, b->bytes, a->size) != 0)) {
+            return false;
+        }
+        if (a->is_position &&
+            (a->position.command != b->position.command ||
+             a->position.format != b->position.format ||
+             a->position.interval_s != b->position.interval_s ||
+             a->position.point_count != b->position.point_count ||
+             memcmp(a->angles, b->angles, sizeof(a->angles)) != 0)) {
             return false;
         }
     }
@@ -76,9 +112,9 @@ static bool test_fragmentation_and_merged_lines(void)
         0xe4, 0xb8, 0xad, '"', '}', '\r', '\n',
         'x', '4', '\r', 'm', '1', '2', '\r'
     };
-    uint8_t bytewise_storage[GS232B_GS_LINE_MAX_BYTES];
-    uint8_t chunked_storage[GS232B_GS_LINE_MAX_BYTES];
-    uint8_t merged_storage[GS232B_GS_LINE_MAX_BYTES];
+    uint8_t bytewise_storage[GS232B_LINE_STORAGE_BYTES];
+    uint8_t chunked_storage[GS232B_LINE_STORAGE_BYTES];
+    uint8_t merged_storage[GS232B_LINE_STORAGE_BYTES];
     gs232b_line_parser_t bytewise_parser;
     gs232b_line_parser_t chunked_parser;
     gs232b_line_parser_t merged_parser;
@@ -128,7 +164,7 @@ static bool test_fragmentation_and_merged_lines(void)
 
 static bool test_extension_header_after_spaces(void)
 {
-    uint8_t storage[GS232B_GS_LINE_MAX_BYTES];
+    uint8_t storage[GS232B_LINE_STORAGE_BYTES];
     gs232b_line_parser_t parser;
     collector_t events;
     CHECK(parser_init(&parser, storage, &events));
@@ -148,7 +184,7 @@ static bool test_extension_header_after_spaces(void)
 
 static bool test_commit_and_crlf(void)
 {
-    uint8_t storage[GS232B_GS_LINE_MAX_BYTES];
+    uint8_t storage[GS232B_LINE_STORAGE_BYTES];
     gs232b_line_parser_t parser;
     collector_t events;
     CHECK(parser_init(&parser, storage, &events));
@@ -161,7 +197,10 @@ static bool test_commit_and_crlf(void)
                                  collect_event, &events) == GS232B_OK);
     CHECK(events.count == 2);
     CHECK(events.events[0].type == GS232B_LINE_EVENT_COMMIT);
-    CHECK(events.events[0].size == 4 && memcmp(events.events[0].bytes, "M180", 4) == 0);
+    CHECK(events.events[0].is_position);
+    CHECK(events.events[0].position.command == 'M');
+    CHECK(events.events[0].position.format == GS232B_POSITION_SINGLE);
+    CHECK(events.events[0].angles[0] == 180);
     CHECK(events.events[1].type == GS232B_LINE_EVENT_COMMIT);
     CHECK(events.events[1].size == 1 && events.events[1].bytes[0] == 'C');
     return true;
@@ -169,7 +208,7 @@ static bool test_commit_and_crlf(void)
 
 static bool test_gs_syntax_before_commit(void)
 {
-    uint8_t storage[GS232B_GS_LINE_MAX_BYTES];
+    uint8_t storage[GS232B_LINE_STORAGE_BYTES];
     gs232b_line_parser_t parser;
     collector_t events;
     CHECK(parser_init(&parser, storage, &events));
@@ -189,7 +228,9 @@ static bool test_gs_syntax_before_commit(void)
                                  collect_event, &events) == GS232B_OK);
     CHECK(events.count == 8);
     CHECK(events.events[0].type == GS232B_LINE_EVENT_COMMIT);
-    CHECK(events.events[0].size == 4 && memcmp(events.events[0].bytes, "M180", 4) == 0);
+    CHECK(events.events[0].is_position);
+    CHECK(events.events[0].position.format == GS232B_POSITION_SINGLE);
+    CHECK(events.events[0].angles[0] == 180);
     CHECK(events.events[1].type == GS232B_LINE_EVENT_ERROR);
     CHECK(events.events[1].error == GS232B_LINE_ERROR_INVALID_SYNTAX);
     CHECK(events.events[2].type == GS232B_LINE_EVENT_ERROR);
@@ -197,9 +238,16 @@ static bool test_gs_syntax_before_commit(void)
     CHECK(events.events[3].type == GS232B_LINE_EVENT_ERROR);
     CHECK(events.events[3].error == GS232B_LINE_ERROR_INVALID_SYNTAX);
     CHECK(events.events[4].type == GS232B_LINE_EVENT_COMMIT);
-    CHECK(events.events[4].size == 13);
+    CHECK(events.events[4].is_position);
+    CHECK(events.events[4].position.format == GS232B_POSITION_SEQUENCE);
+    CHECK(events.events[4].position.interval_s == 10);
+    CHECK(events.events[4].position.point_count == 2);
+    CHECK(events.events[4].angles[0] == 150 && events.events[4].angles[1] == 140);
     CHECK(events.events[5].type == GS232B_LINE_EVENT_COMMIT);
-    CHECK(events.events[5].size == 8 && memcmp(events.events[5].bytes, "W180 090", 8) == 0);
+    CHECK(events.events[5].is_position);
+    CHECK(events.events[5].position.command == 'W');
+    CHECK(events.events[5].position.format == GS232B_POSITION_SINGLE);
+    CHECK(events.events[5].angles[0] == 180 && events.events[5].angles[1] == 90);
     CHECK(events.events[6].type == GS232B_LINE_EVENT_COMMIT);
     CHECK(events.events[7].type == GS232B_LINE_EVENT_ERROR);
     CHECK(events.events[7].error == GS232B_LINE_ERROR_INVALID_SYNTAX);
@@ -237,7 +285,7 @@ static bool test_strict_ascii_spacing_and_numbers(void)
 
 static bool test_invalid_line_discards_prefix_and_suffix_once(void)
 {
-    uint8_t storage[GS232B_GS_LINE_MAX_BYTES];
+    uint8_t storage[GS232B_LINE_STORAGE_BYTES];
     gs232b_line_parser_t parser;
     collector_t events;
     CHECK(parser_init(&parser, storage, &events));
@@ -294,7 +342,7 @@ static bool test_invalid_line_discards_prefix_and_suffix_once(void)
 
 static bool test_length_limits(void)
 {
-    static uint8_t storage[GS232B_GS_LINE_MAX_BYTES];
+    static uint8_t storage[GS232B_LINE_STORAGE_BYTES];
     static uint8_t oversized[GS232B_GS_LINE_MAX_BYTES + 2];
     gs232b_line_parser_t parser;
     collector_t events;
@@ -348,7 +396,7 @@ static bool test_length_limits(void)
 
 static bool test_half_line_timeout_and_recovery(void)
 {
-    uint8_t storage[GS232B_GS_LINE_MAX_BYTES];
+    uint8_t storage[GS232B_LINE_STORAGE_BYTES];
     gs232b_line_parser_t parser;
     collector_t events;
     CHECK(parser_init(&parser, storage, &events));

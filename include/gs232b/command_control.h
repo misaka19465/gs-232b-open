@@ -3,6 +3,7 @@
 
 #include "gs232b/line_parser.h"
 #include "gs232b/ports.h"
+#include "gs232b/sequence_store.h"
 
 #define GS232B_CONTROL_MAX_SESSIONS 7U
 #define GS232B_CONTROL_REQUESTS_PER_SESSION 8U
@@ -27,6 +28,8 @@ typedef struct {
     gs232b_line_kind_t kind;
     gs232b_request_access_t access;
     gs232b_byte_span_t line;
+    const gs232b_position_command_t *position; /* NOTE: M/W 使用数字视图，line 为空。 */
+    const gs232b_position_plan_t *position_plan; /* NOTE: 仅执行已验证的数字命令时有效。 */
 } gs232b_control_request_t;
 
 typedef struct {
@@ -46,7 +49,14 @@ typedef struct {
  *       已接纳的动作继续。tick 推进采样、运动安全检查和序列，不得另读命令。
  *       snapshot 必须反映上述真实状态；运动故障由执行端锁定并全停。
  *       complete 可省略；仅向来源会话报告结果，line 视图仅在回调期间有效；
+ *       M/W 完成通知只含 position 元数据，angles=NULL；有效机械角读取 active。
  *       可调用 control_snapshot 复制只读状态，OWNER GET/TAKE/RELEASE 在此编码响应。
+ *       position_context 只复制最新坐标/轴能力，不采样或提交输出；M/W 全量校验
+ *       由控制核心完成。execute 对数字命令按 position_plan 先停 stop_mask，
+ *       再原子接纳 axis_mask 的首点，成功时取消旧计时并更新真实序列状态；
+ *       前置条件错误不得改变旧动作，输出故障按全停故障处理。后续序列读取
+ *       control.sequence.active 的机械整数度，不持有跨提交/清除的旧角度视图。
+ *       裸 M/W 由控制核心在权限通过后清任务、全停并返回错误，不调用 execute。
  *       普通请求 count=1；同周期同来源同种停止合并，count 是应答数量。
  *       epoch 作废的普通请求静默丢弃。回调和 ctx 生命周期覆盖控制器。
  */
@@ -58,6 +68,7 @@ typedef struct {
     gs232b_error_t (*stop)(void *ctx, uint8_t axis_mask);
     gs232b_error_t (*tick)(void *ctx);
     gs232b_error_t (*snapshot)(void *ctx, gs232b_control_activity_t *activity);
+    gs232b_error_t (*position_context)(void *ctx, gs232b_position_context_t *context);
     void (*complete)(void *ctx, const gs232b_control_request_t *request,
                      gs232b_error_t result, uint32_t count);
 } gs232b_control_executor_t;
@@ -67,8 +78,11 @@ typedef struct {
     uint32_t count;
 } gs232b_control_stop_notice_t;
 
+typedef struct gs232b_control gs232b_control_t;
+
 /* NOTE: 以下布局仅供静态分配；调用方不得直接修改、复制活动对象或重用工作区。 */
 typedef struct {
+    gs232b_control_t *control;
     uint64_t generation;
     gs232b_session_key_t key;
     gs232b_transport_t transport;
@@ -85,9 +99,11 @@ typedef struct {
     gs232b_request_access_t access;
     size_t offset;
     size_t size;
+    bool is_position;
+    gs232b_position_command_t position;
 } gs232b_control_queued_t;
 
-typedef struct {
+struct gs232b_control {
     gs232b_clock_t clock;
     gs232b_control_executor_t executor;
     gs232b_control_session_t sessions[GS232B_CONTROL_MAX_SESSIONS];
@@ -96,6 +112,9 @@ typedef struct {
     size_t request_capacity;
     size_t request_bytes_used;
     size_t request_count;
+    gs232b_sequence_store_t sequence;
+    gs232b_command_context_t input_reservation;
+    bool upload_queued;
     gs232b_session_key_t owner;
     gs232b_command_epoch_t epoch;
     gs232b_time_us_t idle_since_us;
@@ -105,7 +124,7 @@ typedef struct {
     bool epoch_exhausted;
     bool fault_seen;
     bool initialized;
-} gs232b_control_t;
+};
 
 typedef struct {
     gs232b_session_key_t owner;
@@ -119,12 +138,14 @@ typedef struct {
     bool idle_timer_running;
     gs232b_time_us_t idle_since_us;
     bool epoch_exhausted;
+    gs232b_session_key_t input_reservation;
+    bool upload_queued;
 } gs232b_control_snapshot_t;
 
 /**
  * @brief 初始化静态控制核心，要求执行端无活动动作、序列或交互且已知全停。
- * @param request_bytes 独占的普通请求字节池，至少 GS232B_GS_LINE_MAX_BYTES。
- * @param request_capacity 固定字节池容量，建议 32KiB；耗尽拒绝整条新请求。
+ * @param request_bytes 独占的普通请求字节池，至少 GS232B_LINE_STORAGE_BYTES。
+ * @param request_capacity 固定字节池容量；M/W 仅排队数字描述符，不占正文池。
  * @note 所有 API、执行端和传输入口必须由同一任务/外部锁串行调用。
  *       不得重新初始化活动对象；重启实例须同时丢弃全部外部会话和输入。
  */
@@ -134,7 +155,7 @@ gs232b_error_t gs232b_control_init(gs232b_control_t *control, gs232b_clock_t clo
 
 /**
  * @brief 打开会话，分配非零会话键；复用槽位时 generation 单调增加，不回绕。
- * @param line_storage 会话独占工作区，至少 GS232B_GS_LINE_MAX_BYTES；借用至关闭。
+ * @param line_storage 会话独占工作区，至少 GS232B_LINE_STORAGE_BYTES；借用至关闭。
  * @note 传输适配器必须保存返回的完整键，不得仅保存 session_id。
  */
 gs232b_error_t gs232b_control_session_open(gs232b_control_t *control,

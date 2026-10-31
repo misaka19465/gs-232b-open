@@ -12,10 +12,11 @@ typedef struct {
     gs232b_motion_sim_t sim;
     gs232b_control_t control;
     uint8_t request_bytes[32768];
-    uint8_t line_storage[CONTROL_TEST_SESSIONS][GS232B_GS_LINE_MAX_BYTES];
+    uint8_t line_storage[CONTROL_TEST_SESSIONS][GS232B_LINE_STORAGE_BYTES];
     gs232b_session_key_t sessions[CONTROL_TEST_SESSIONS];
     gs232b_sequence_state_t sequence;
     gs232b_interaction_t interaction;
+    gs232b_azimuth_display_settings_t display;
     bool sequence_would_restart;
     gs232b_error_t validation_error;
     gs232b_error_t execute_error;
@@ -43,9 +44,7 @@ static inline gs232b_error_t control_validate(void *ctx,
                                                const gs232b_control_request_t *request)
 {
     command_fixture_t *fixture = ctx;
-    if (command_is(request, "M999") || command_is(request, "W999 999")) {
-        return GS232B_ERROR_INVALID_ARGUMENT;
-    }
+    (void)request;
     return fixture->validation_error;
 }
 
@@ -61,6 +60,22 @@ static inline gs232b_error_t control_execute(void *ctx,
         ++fixture->queries;
         return GS232B_OK;
     }
+    if (request->position != NULL) {
+        const gs232b_position_plan_t *plan = request->position_plan;
+        gs232b_error_t error = GS232B_OK;
+        if (plan->stop_mask != 0) {
+            error = gs232b_motion_stop(&fixture->sim.motion, plan->stop_mask);
+        }
+        if (error == GS232B_OK) {
+            error = gs232b_motion_goto(&fixture->sim.motion, plan->axis_mask,
+                                        plan->targets_mdeg);
+        }
+        if (error == GS232B_OK) {
+            fixture->sequence = request->position->format == GS232B_POSITION_SEQUENCE ?
+                GS232B_SEQUENCE_LOADED_WAIT_T : GS232B_SEQUENCE_EMPTY;
+        }
+        return error;
+    }
     if (command_is(request, "R") || command_is(request, "L")) {
         fixture->sequence = GS232B_SEQUENCE_EMPTY;
         return gs232b_motion_manual(&fixture->sim.motion, GS232B_AXIS_AZIMUTH,
@@ -70,11 +85,6 @@ static inline gs232b_error_t control_execute(void *ctx,
         fixture->sequence = GS232B_SEQUENCE_EMPTY;
         return gs232b_motion_manual(&fixture->sim.motion, GS232B_AXIS_ELEVATION,
             command_is(request, "U") ? GS232B_MOTION_POSITIVE : GS232B_MOTION_NEGATIVE);
-    }
-    if (command_is(request, "M010 150 140")) {
-        fixture->sequence = GS232B_SEQUENCE_LOADED_WAIT_T;
-        const int32_t targets[] = {150000, 0};
-        return gs232b_motion_goto(&fixture->sim.motion, GS232B_MOTION_AZ_MASK, targets);
     }
     if (command_is(request, "T")) {
         fixture->sequence = GS232B_SEQUENCE_RUNNING;
@@ -161,10 +171,26 @@ static inline void control_complete(void *ctx, const gs232b_control_request_t *r
     }
 }
 
+static inline gs232b_error_t control_position_context(void *ctx,
+    gs232b_position_context_t *context)
+{
+    command_fixture_t *fixture = ctx;
+    gs232b_motion_snapshot_t state;
+    const gs232b_error_t error = gs232b_motion_snapshot(&fixture->sim.motion, &state);
+    if (error != GS232B_OK) {
+        return error;
+    }
+    context->display = fixture->display;
+    memcpy(context->axes, state.axes, sizeof(context->axes));
+    context->elevation_enabled = fixture->sim.motion.config.axes[GS232B_AXIS_ELEVATION].enabled;
+    return GS232B_OK;
+}
+
 static inline bool command_fixture_init(command_fixture_t *fixture,
                                          gs232b_time_us_t start_us)
 {
     memset(fixture, 0, sizeof(*fixture));
+    gs232b_azimuth_display_settings_init(&fixture->display);
     gs232b_motion_config_t config;
     gs232b_motion_sim_config(&config);
     CHECK(gs232b_motion_sim_init(&fixture->sim, &config, start_us, WAIT_US) == GS232B_OK);
@@ -176,6 +202,7 @@ static inline bool command_fixture_init(command_fixture_t *fixture,
         .stop = control_stop,
         .tick = control_executor_tick,
         .snapshot = control_activity,
+        .position_context = control_position_context,
         .complete = control_complete
     };
     const gs232b_clock_t clock = {.ctx = fixture, .now_us = control_clock};

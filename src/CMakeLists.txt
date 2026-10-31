@@ -4,5 +4,6 @@ idf_component_register(
          "core/persistence.c" "core/output_manager.c" "core/motion.c"
          "core/motion_control.c" "core/motion_feedback.c" "platform/nvs_store.c"
          "core/command_control.c" "core/command_input.c" "core/command_dispatch.c"
+         "core/position_parser.c" "core/sequence_store.c" "core/command_upload.c"
     INCLUDE_DIRS "." "../include"
 )

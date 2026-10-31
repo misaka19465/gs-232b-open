@@ -5,6 +5,10 @@
 static void pop_request(gs232b_control_t *control)
 {
     const gs232b_control_queued_t first = control->requests[0];
+    if (first.is_position) {
+        control->input_reservation = (gs232b_command_context_t){0};
+        control->upload_queued = false;
+    }
     gs232b_control_session_t *slot = gs232b_control_find(control, first.context.session);
     if (slot != NULL) {
         --slot->pending_requests;
@@ -31,7 +35,10 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
     if (request->access == GS232B_REQUEST_OWNER_GET) {
         return GS232B_OK;
     }
-    gs232b_error_t error = control->executor.validate(control->executor.ctx, request);
+    const bool bare = request->position != NULL &&
+                      request->position->format == GS232B_POSITION_BARE;
+    gs232b_error_t error = bare ? GS232B_OK :
+        control->executor.validate(control->executor.ctx, request);
     if (error != GS232B_OK) {
         return error;
     }
@@ -45,6 +52,21 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
             !gs232b_session_key_equal(control->owner, request->context.session)) {
             return GS232B_ERROR_NOT_OWNER;
         }
+        error = gs232b_control_check_reservation(control, request->context.session);
+        if (error != GS232B_OK) {
+            return error;
+        }
+    }
+    gs232b_position_context_t position_context;
+    gs232b_position_plan_t position_plan;
+    if (request->position != NULL) {
+        error = gs232b_control_validate_position(control, request->position,
+                                                  &position_context, &position_plan);
+        if (error != GS232B_OK) {
+            return error;
+        }
+    }
+    if (writing) {
         if (acquiring) {
             error = gs232b_control_take(control, request->context);
             if (error != GS232B_OK) {
@@ -52,11 +74,31 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
             }
         }
     }
-    error = control->executor.execute(control->executor.ctx, request);
-    gs232b_control_observe_fault(control);
+    if (bare) {
+        gs232b_control_cancel(control);
+        error = control->executor.stop(control->executor.ctx, GS232B_CONTROL_ALL_AXES);
+        if (error == GS232B_OK) {
+            error = GS232B_ERROR_INVALID_ARGUMENT;
+        }
+    } else {
+        gs232b_control_request_t prepared = *request;
+        prepared.position_plan = request->position != NULL ? &position_plan : NULL;
+        error = control->executor.execute(control->executor.ctx, &prepared);
+        if (error == GS232B_OK && request->position != NULL) {
+            gs232b_sequence_store_commit(&control->sequence, request->position,
+                                          &position_context, &position_plan);
+        }
+    }
+    const gs232b_error_t state_error = gs232b_control_observe_fault(control);
+    if (error == GS232B_OK) {
+        error = state_error;
+    }
     if (writing && gs232b_session_key_equal(control->owner, request->context.session)) {
         gs232b_control_activity_t activity = {0};
         if (control->executor.snapshot(control->executor.ctx, &activity) == GS232B_OK) {
+            if (activity.sequence == GS232B_SEQUENCE_EMPTY) {
+                gs232b_sequence_store_clear(&control->sequence);
+            }
             if (acquiring && error != GS232B_OK && gs232b_control_idle(&activity)) {
                 control->owner = (gs232b_session_key_t){0};
                 control->idle_timer_running = false;
@@ -81,13 +123,14 @@ gs232b_error_t gs232b_control_dispatch_one(gs232b_control_t *control)
         .context = queued.context,
         .kind = queued.kind,
         .access = queued.access,
-        .line = {control->request_bytes + queued.offset, queued.size}
+        .line = {control->request_bytes + queued.offset, queued.size},
+        .position = queued.is_position ? &queued.position : NULL
     };
     gs232b_error_t error = gs232b_control_check(control, request.context);
     if (error == GS232B_OK) {
         /* NOTE: N/空行在排队后可能由查询变为校准输入，必须按执行瞬间
          * 的发起会话和交互状态重新分类，不能用旧的只读权限取消交互。 */
-        if (request.kind == GS232B_LINE_GS &&
+        if (request.position == NULL && request.kind == GS232B_LINE_GS &&
             (request.line.size == 0 ||
              gs232b_byte_span_equal_ascii_ci(request.line, "N"))) {
             gs232b_control_activity_t activity = {0};
@@ -140,6 +183,9 @@ static gs232b_error_t release_if_idle(gs232b_control_t *control)
         control->idle_timer_running = false;
         return GS232B_OK;
     }
+    if (gs232b_session_key_valid(control->input_reservation.session)) {
+        return GS232B_OK;
+    }
     gs232b_control_activity_t activity = {0};
     const gs232b_error_t error = control->executor.snapshot(control->executor.ctx, &activity);
     if (error != GS232B_OK) {
@@ -154,7 +200,7 @@ static gs232b_error_t release_if_idle(gs232b_control_t *control)
         control->idle_since_us = now_us;
         control->idle_timer_running = true;
     } else if (now_us - control->idle_since_us >= GS232B_CONTROL_IDLE_RELEASE_US) {
-        control->executor.cancel(control->executor.ctx);
+        gs232b_control_cancel(control);
         control->owner = (gs232b_session_key_t){0};
         control->idle_timer_running = false;
         return gs232b_control_invalidate(control);

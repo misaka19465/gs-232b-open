@@ -2,32 +2,42 @@
 
 #include <string.h>
 
+static void abort_upload(gs232b_line_parser_t *parser)
+{
+    if (parser->upload_held) {
+        parser->upload_held = false;
+        parser->upload.abort(parser->upload.ctx);
+    }
+}
+
 static void reset_line(gs232b_line_parser_t *parser, bool swallow_lf)
 {
     parser->length = 0;
+    parser->stored = 0;
+    parser->pending_spaces = 0;
     parser->kind = GS232B_LINE_GS;
     parser->discard_error = GS232B_LINE_ERROR_NONE;
+    parser->upload_error = GS232B_OK;
     parser->active = false;
     parser->kind_known = false;
     parser->discarding = false;
     parser->error_reported = false;
     parser->swallow_lf = swallow_lf;
+    parser->is_position = false;
+    parser->upload_held = false;
 }
 
 static void emit_error(gs232b_line_parser_t *parser, gs232b_line_error_t error,
                        gs232b_line_event_fn event_fn, void *event_ctx)
 {
     parser->error_reported = true;
-    if (event_fn != NULL) {
-        const gs232b_line_event_t event = {
-            .type = GS232B_LINE_EVENT_ERROR,
-            .kind = parser->kind,
-            .bytes = NULL,
-            .size = 0,
-            .error = error
-        };
-        event_fn(event_ctx, &event);
-    }
+    const gs232b_line_event_t event = {
+        .type = GS232B_LINE_EVENT_ERROR,
+        .kind = parser->kind,
+        .error = error,
+        .rejection = parser->upload_error
+    };
+    event_fn(event_ctx, &event);
 }
 
 static void discard_line(gs232b_line_parser_t *parser, gs232b_line_error_t error)
@@ -35,6 +45,7 @@ static void discard_line(gs232b_line_parser_t *parser, gs232b_line_error_t error
     if (!parser->discarding) {
         parser->discarding = true;
         parser->discard_error = error;
+        abort_upload(parser);
     }
 }
 
@@ -44,55 +55,6 @@ static size_t line_limit(const gs232b_line_parser_t *parser)
            GS232B_EXTENSION_LINE_MAX_BYTES : GS232B_GS_LINE_MAX_BYTES;
 }
 
-static bool bytes_equal(const uint8_t *bytes, size_t size, const char *text)
-{
-    size_t text_size = strlen(text);
-    return size == text_size && memcmp(bytes, text, size) == 0;
-}
-
-static bool decimal3_at(const uint8_t *bytes, size_t size, size_t offset)
-{
-    uint16_t value;
-    return offset <= size && size - offset >= 3 &&
-           gs232b_byte_span_parse_decimal3(
-               (gs232b_byte_span_t){.bytes = bytes + offset, .size = 3}, &value);
-}
-
-static bool parse_numeric_tail(const uint8_t *bytes, size_t size, size_t offset,
-                               size_t *field_count)
-{
-    size_t count = 0;
-    while (offset < size) {
-        if (!decimal3_at(bytes, size, offset)) {
-            return false;
-        }
-        ++count;
-        offset += 3;
-        if (offset == size) {
-            break;
-        }
-        if (bytes[offset] != ' ') {
-            return false;
-        }
-        do {
-            ++offset;
-        } while (offset < size && bytes[offset] == ' ');
-        if (offset == size) {
-            return false;
-        }
-    }
-    *field_count = count;
-    return true;
-}
-
-static size_t skip_spaces(const uint8_t *bytes, size_t size, size_t offset)
-{
-    while (offset < size && bytes[offset] == ' ') {
-        ++offset;
-    }
-    return offset;
-}
-
 static bool gs_syntax_valid(const uint8_t *bytes, size_t size)
 {
     if (size == 0) {
@@ -100,112 +62,52 @@ static bool gs_syntax_valid(const uint8_t *bytes, size_t size)
     }
     static const char *const exact_commands[] = {
         "R", "L", "A", "U", "D", "E", "S", "T", "C", "C2", "B", "N", "Z",
-        "H", "H2", "H3", "O", "O2", "F", "F2", "Y", "YES", "NO"
+        "H", "H2", "H3", "O", "O2", "F", "F2", "Y", "YES", "NO", "P36", "P45"
     };
-    for (size_t index = 0; index < sizeof(exact_commands) / sizeof(exact_commands[0]);
-         ++index) {
-        if (bytes_equal(bytes, size, exact_commands[index])) {
+    for (size_t i = 0; i < sizeof(exact_commands) / sizeof(exact_commands[0]); ++i) {
+        if (size == strlen(exact_commands[i]) &&
+            memcmp(bytes, exact_commands[i], size) == 0) {
             return true;
         }
     }
-    if (bytes_equal(bytes, size, "P36") || bytes_equal(bytes, size, "P45") ||
-        (size == 2 && bytes[0] == 'X' && bytes[1] >= '1' && bytes[1] <= '4')) {
-        return true;
-    }
-
-    if (bytes[0] == 'M') {
-        if (size == 1) {
-            return true;
-        }
-        if (!decimal3_at(bytes, size, 1)) {
-            return false;
-        }
-        if (size == 4) {
-            return true;
-        }
-        if (bytes[4] != ' ') {
-            return false;
-        }
-        size_t fields = 0;
-        size_t tail = skip_spaces(bytes, size, 5);
-        return parse_numeric_tail(bytes, size, tail, &fields) &&
-               fields >= 2 && fields <= GS232B_M_SEQUENCE_MAX_POINTS;
-    }
-
-    if (bytes[0] == 'W') {
-        if (size == 1) {
-            return true;
-        }
-        if (size < 4 || !decimal3_at(bytes, size, 1)) {
-            return false;
-        }
-        if (size == 4) {
-            return false;
-        }
-        if (bytes[4] != ' ') {
-            return false;
-        }
-        size_t fields = 0;
-        size_t tail = skip_spaces(bytes, size, 5);
-        if (!parse_numeric_tail(bytes, size, tail, &fields)) {
-            return false;
-        }
-        return fields == 1 ||
-               (fields >= 4 && fields <= 2 * GS232B_W_SEQUENCE_MAX_PAIRS && fields % 2 == 0);
-    }
-    return false;
-}
-
-static bool extension_byte_valid(uint8_t byte)
-{
-    return byte >= 0x20;
+    return size == 2 && bytes[0] == 'X' && bytes[1] >= '1' && bytes[1] <= '4';
 }
 
 static void finish_line(gs232b_line_parser_t *parser,
                         gs232b_line_event_fn event_fn, void *event_ctx)
 {
+    gs232b_position_command_t position;
+    if (!parser->discarding && parser->is_position) {
+        const gs232b_error_t error = gs232b_position_parser_finish(&parser->position,
+                                                                  &position);
+        if (error != GS232B_OK) {
+            discard_line(parser, error == GS232B_ERROR_RESOURCE_EXHAUSTED ?
+                GS232B_LINE_ERROR_TOO_LONG : GS232B_LINE_ERROR_INVALID_SYNTAX);
+        } else if (parser->upload_error != GS232B_OK) {
+            discard_line(parser, GS232B_LINE_ERROR_UPLOAD_REJECTED);
+        }
+    } else if (!parser->discarding && parser->kind == GS232B_LINE_GS &&
+               !gs_syntax_valid(parser->storage, parser->stored)) {
+        discard_line(parser, GS232B_LINE_ERROR_INVALID_SYNTAX);
+    }
     if (parser->discarding) {
         if (!parser->error_reported) {
             emit_error(parser, parser->discard_error, event_fn, event_ctx);
         }
-    } else if (event_fn != NULL && parser->kind == GS232B_LINE_GS) {
-        size_t start = 0;
-        size_t end = parser->length;
-        while (start < end && parser->storage[start] == ' ') {
-            ++start;
-        }
-        while (end > start && parser->storage[end - 1] == ' ') {
-            --end;
-        }
-        if (!gs_syntax_valid(parser->storage + start, end - start)) {
-            emit_error(parser, GS232B_LINE_ERROR_INVALID_SYNTAX, event_fn, event_ctx);
-            reset_line(parser, true);
-            return;
-        }
-        const gs232b_line_event_t event = {
-            .type = GS232B_LINE_EVENT_COMMIT,
-            .kind = parser->kind,
-            .bytes = parser->storage + start,
-            .size = end - start,
-            .error = GS232B_LINE_ERROR_NONE
-        };
-        event_fn(event_ctx, &event);
-    } else if (!parser->discarding && event_fn != NULL) {
-        size_t start = 0;
-        size_t end = parser->length;
-        while (start < end && parser->storage[start] == ' ') {
-            ++start;
-        }
-        while (end > start && parser->storage[end - 1] == ' ') {
+    } else {
+        size_t end = parser->stored;
+        while (end > 0 && parser->storage[end - 1] == ' ') {
             --end;
         }
         const gs232b_line_event_t event = {
             .type = GS232B_LINE_EVENT_COMMIT,
             .kind = parser->kind,
-            .bytes = parser->storage + start,
-            .size = end - start,
-            .error = GS232B_LINE_ERROR_NONE
+            .bytes = parser->is_position ? NULL : parser->storage,
+            .size = parser->is_position ? 0 : end,
+            .position = parser->is_position ? &position : NULL
         };
+        /* NOTE: 成功 CR 的预约转交事件接收方，不能在 reset 时释放。 */
+        parser->upload_held = false;
         event_fn(event_ctx, &event);
     }
     reset_line(parser, true);
@@ -225,16 +127,18 @@ static void expire_if_needed(gs232b_line_parser_t *parser, gs232b_time_us_t now_
 }
 
 gs232b_error_t gs232b_line_parser_init(gs232b_line_parser_t *parser,
-                                       uint8_t *storage, size_t storage_capacity)
+                                       uint8_t *storage, size_t storage_capacity,
+                                       gs232b_line_upload_t upload)
 {
     if (parser == NULL || storage == NULL ||
-        storage_capacity < GS232B_GS_LINE_MAX_BYTES) {
+        storage_capacity < GS232B_LINE_STORAGE_BYTES ||
+        upload.begin == NULL || upload.abort == NULL) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     memset(parser, 0, sizeof(*parser));
     parser->storage = storage;
     parser->storage_capacity = storage_capacity;
-    parser->kind = GS232B_LINE_GS;
+    parser->upload = upload;
     return GS232B_OK;
 }
 
@@ -252,10 +156,42 @@ gs232b_error_t gs232b_line_parser_tick(gs232b_line_parser_t *parser,
 void gs232b_line_parser_invalidate(gs232b_line_parser_t *parser)
 {
     if (parser != NULL && parser->active) {
-        parser->length = 0;
+        abort_upload(parser);
+        parser->stored = 0;
         parser->discarding = true;
         parser->error_reported = true;
     }
+}
+
+static void store_byte(gs232b_line_parser_t *parser, uint8_t byte)
+{
+    if (!parser->kind_known) {
+        return;
+    }
+    if (parser->is_position) {
+        const gs232b_error_t error = gs232b_position_parser_push(&parser->position, byte);
+        if (error != GS232B_OK) {
+            discard_line(parser, error == GS232B_ERROR_RESOURCE_EXHAUSTED ?
+                GS232B_LINE_ERROR_TOO_LONG : GS232B_LINE_ERROR_INVALID_SYNTAX);
+        }
+        return;
+    }
+    if (parser->kind == GS232B_LINE_GS && byte == ' ') {
+        ++parser->pending_spaces;
+        return;
+    }
+    if (parser->pending_spaces >= parser->storage_capacity - parser->stored) {
+        discard_line(parser, GS232B_LINE_ERROR_INVALID_SYNTAX);
+        return;
+    }
+    memset(parser->storage + parser->stored, ' ', parser->pending_spaces);
+    parser->stored += parser->pending_spaces;
+    parser->pending_spaces = 0;
+    if (parser->stored >= parser->storage_capacity) {
+        discard_line(parser, GS232B_LINE_ERROR_TOO_LONG);
+        return;
+    }
+    parser->storage[parser->stored++] = byte;
 }
 
 gs232b_error_t gs232b_line_parser_feed(gs232b_line_parser_t *parser,
@@ -267,8 +203,8 @@ gs232b_error_t gs232b_line_parser_feed(gs232b_line_parser_t *parser,
         (size != 0 && bytes == NULL)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
-    for (size_t index = 0; index < size; ++index) {
-        uint8_t byte = bytes[index];
+    for (size_t i = 0; i < size; ++i) {
+        uint8_t byte = bytes[i];
         expire_if_needed(parser, now_us, event_fn, event_ctx);
         if (parser->swallow_lf) {
             parser->swallow_lf = false;
@@ -280,36 +216,44 @@ gs232b_error_t gs232b_line_parser_feed(gs232b_line_parser_t *parser,
             finish_line(parser, event_fn, event_ctx);
             continue;
         }
-
         parser->active = true;
         parser->last_byte_at_us = now_us;
-        if (!parser->kind_known && byte != ' ' && !parser->discarding) {
-            parser->kind = byte == '!' ? GS232B_LINE_EXTENSION : GS232B_LINE_GS;
-            parser->kind_known = true;
-        }
         if (parser->discarding) {
             continue;
         }
-        if (parser->length >= line_limit(parser) ||
-            parser->length >= parser->storage_capacity) {
+        const bool first = !parser->kind_known && byte != ' ';
+        if (first) {
+            parser->kind = byte == '!' ? GS232B_LINE_EXTENSION : GS232B_LINE_GS;
+            parser->kind_known = true;
+        }
+        if (parser->length >= line_limit(parser)) {
             discard_line(parser, GS232B_LINE_ERROR_TOO_LONG);
             continue;
         }
-
-        bool valid;
-        if (parser->kind == GS232B_LINE_EXTENSION) {
-            valid = extension_byte_valid(byte);
-        } else {
-            valid = byte >= 0x20 && byte <= 0x7e;
-            if (valid && byte >= 'a' && byte <= 'z') {
-                byte = (uint8_t)(byte - ('a' - 'A'));
-            }
-        }
+        ++parser->length;
+        const bool valid = parser->kind == GS232B_LINE_EXTENSION ? byte >= 0x20 :
+                                                            byte >= 0x20 && byte <= 0x7e;
         if (!valid) {
             discard_line(parser, GS232B_LINE_ERROR_INVALID_BYTE);
             continue;
         }
-        parser->storage[parser->length++] = byte;
+        if (parser->kind == GS232B_LINE_GS && byte >= 'a' && byte <= 'z') {
+            byte = (uint8_t)(byte - ('a' - 'A'));
+        }
+        if (first && (byte == 'M' || byte == 'W')) {
+            parser->is_position = true;
+            uint16_t *angles = NULL;
+            parser->upload_error = parser->upload.begin(parser->upload.ctx, &angles);
+            parser->upload_held = parser->upload_error == GS232B_OK;
+            if (parser->upload_held && angles == NULL) {
+                abort_upload(parser);
+                parser->upload_error = GS232B_ERROR_NOT_READY;
+            }
+            gs232b_position_parser_init(&parser->position, (char)byte,
+                                        parser->upload_held ? angles : NULL);
+        } else {
+            store_byte(parser, byte);
+        }
     }
     return GS232B_OK;
 }

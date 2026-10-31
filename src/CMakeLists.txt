@@ -6,5 +6,6 @@ idf_component_register(
          "core/command_control.c" "core/command_input.c" "core/command_dispatch.c"
          "core/position_parser.c" "core/sequence_store.c" "core/command_upload.c"
          "core/command_sequence.c" "core/command_calibration.c"
+         "core/gs_dispatcher.c" "core/gs_commands.c" "core/gs_replies.c"
     INCLUDE_DIRS "." "../include"
 )

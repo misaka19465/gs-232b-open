@@ -45,6 +45,9 @@ gs232b_error_t gs232b_control_observe_fault(gs232b_control_t *control);
 void gs232b_control_complete(gs232b_control_t *control,
                               const gs232b_control_request_t *request,
                               gs232b_error_t error, uint32_t count);
+/** @brief 通知队列请求失效；行和数字视图仅在同步回调内有效。 */
+void gs232b_control_discard(gs232b_control_t *control,
+                            const gs232b_control_queued_t *queued);
 /** @brief 解码完整行的权限类别；未知扩展默认拒绝。 */
 gs232b_error_t gs232b_control_classify(gs232b_line_kind_t kind,
                                       gs232b_byte_span_t line,

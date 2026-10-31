@@ -71,8 +71,26 @@ void gs232b_control_complete(gs232b_control_t *control,
     }
 }
 
+void gs232b_control_discard(gs232b_control_t *control,
+                            const gs232b_control_queued_t *queued)
+{
+    if (control->executor.discarded != NULL) {
+        const gs232b_control_request_t request = {
+            .context = queued->context, .kind = queued->kind, .access = queued->access,
+            .line = {control->request_bytes + queued->offset, queued->size},
+            .position = queued->is_position ? &queued->position : NULL,
+            .reply_id = queued->reply_id
+        };
+        control->executor.discarded(control->executor.ctx, &request);
+    }
+}
+
 gs232b_error_t gs232b_control_invalidate(gs232b_control_t *control)
 {
+    /* NOTE: 正在执行的队头仍会 complete，其余请求通过 discarded 解除响应占位。 */
+    for (size_t i = control->dispatching ? 1U : 0U; i < control->request_count; ++i) {
+        gs232b_control_discard(control, &control->requests[i]);
+    }
     control->request_count = 0;
     control->request_bytes_used = 0;
     for (size_t i = 0; i < GS232B_CONTROL_MAX_SESSIONS; ++i) {
@@ -206,6 +224,7 @@ static void drop_session_requests(gs232b_control_t *control,
     for (size_t i = 0; i < control->request_count; ++i) {
         gs232b_control_queued_t request = control->requests[i];
         if (gs232b_session_key_equal(request.context.session, session)) {
+            gs232b_control_discard(control, &request);
             continue;
         }
         memmove(control->request_bytes + used,

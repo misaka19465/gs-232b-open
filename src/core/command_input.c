@@ -75,7 +75,8 @@ gs232b_error_t gs232b_control_enqueue(gs232b_control_t *control,
         .access = request->access,
         .offset = control->request_bytes_used,
         .size = request->line.size,
-        .is_position = request->position != NULL
+        .is_position = request->position != NULL,
+        .reply_id = request->reply_id
     };
     if (request->position != NULL) {
         queued->position = *request->position;
@@ -165,12 +166,9 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
             return gs232b_control_enqueue(control, request);
         }
     }
-    if (request->access == GS232B_REQUEST_WRITE ||
-        request->access == GS232B_REQUEST_QUERY) {
-        error = control->executor.validate(control->executor.ctx, request);
-        if (error != GS232B_OK) {
-            return error;
-        }
+    error = control->executor.validate(control->executor.ctx, request);
+    if (error != GS232B_OK) {
+        return error;
     }
     return gs232b_control_enqueue(control, request);
 }
@@ -184,6 +182,9 @@ static void on_line(void *ctx, const gs232b_line_event_t *event)
         .line = {event->bytes, event->size},
         .position = event->position
     };
+    if (input->control->executor.submitted != NULL) {
+        input->control->executor.submitted(input->control->executor.ctx, &request);
+    }
     gs232b_error_t error;
     if (event->type == GS232B_LINE_EVENT_ERROR) {
         error = event->error == GS232B_LINE_ERROR_UPLOAD_REJECTED ? event->rejection :

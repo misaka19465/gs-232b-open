@@ -27,6 +27,14 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
                                        gs232b_control_request_t *request,
                                        gs232b_response_t *response)
 {
+    if (request->access >= GS232B_REQUEST_OWNER_GET &&
+        request->access <= GS232B_REQUEST_OWNER_RELEASE) {
+        /* NOTE: 执行端必须明确支持扩展响应，不能因核心识别 OWNER 就绕过验证取权。 */
+        const gs232b_error_t error = control->executor.validate(control->executor.ctx, request);
+        if (error != GS232B_OK) {
+            return error;
+        }
+    }
     if (request->access == GS232B_REQUEST_OWNER_TAKE) {
         return gs232b_control_take(control, request->context);
     }
@@ -146,7 +154,8 @@ gs232b_error_t gs232b_control_dispatch_one(gs232b_control_t *control)
         .kind = queued.kind,
         .access = queued.access,
         .line = {control->request_bytes + queued.offset, queued.size},
-        .position = queued.is_position ? &queued.position : NULL
+        .position = queued.is_position ? &queued.position : NULL,
+        .reply_id = queued.reply_id
     };
     gs232b_error_t error = gs232b_control_check(control, request.context);
     if (error == GS232B_OK) {
@@ -164,9 +173,13 @@ gs232b_error_t gs232b_control_dispatch_one(gs232b_control_t *control)
         }
         gs232b_response_t response;
         if (error == GS232B_OK) {
+            control->dispatching = true;
             error = execute_request(control, &request, &response);
         }
         gs232b_control_complete(control, &request, error, 1);
+        control->dispatching = false;
+    } else {
+        gs232b_control_discard(control, &queued);
     }
     /* NOTE: RELEASE/故障可能已清整队列；此时不能再弹出新的队头。 */
     if (control->request_count != 0 && control->epoch == dispatch_epoch) {

@@ -172,7 +172,9 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              command_invalidation_tests sequence_upload_tests
                              sequence_commit_tests sequence_timing_tests
                              sequence_lifecycle_tests sequence_fault_tests
-                             calibration_tests calibration_lifecycle_tests)
+                             calibration_tests calibration_lifecycle_tests
+                             gs_commands_tests gs_sessions_tests gs_calibration_tests
+                             gs_sequences_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -196,6 +198,9 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/command_control.c
         ../../src/core/command_input.c
         ../../src/core/command_dispatch.c
+        ../../src/core/gs_dispatcher.c
+        ../../src/core/gs_commands.c
+        ../../src/core/gs_replies.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
     set_target_properties(${motion_test} PROPERTIES

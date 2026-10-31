@@ -33,6 +33,7 @@ typedef struct {
     const gs232b_position_command_t *position; /* NOTE: M/W 使用数字视图，line 为空。 */
     const gs232b_position_plan_t *position_plan; /* NOTE: 仅执行已验证的数字命令时有效。 */
     const gs232b_response_t *response; /* NOTE: 仅 complete 期间有效的校准响应正文。 */
+    uint64_t reply_id; /* NOTE: submitted 分配的会话内响应标识，0 表示未跟踪。 */
 } gs232b_control_request_t;
 
 typedef struct {
@@ -88,6 +89,10 @@ typedef struct {
     gs232b_calibration_ports_t calibration;
     gs232b_error_t (*respond)(void *ctx, gs232b_session_key_t session,
                                const gs232b_response_t *response);
+    /** @brief 可选：为每个完整行/解析错误登记响应顺序；只可设置 reply_id，不得重入。 */
+    void (*submitted)(void *ctx, gs232b_control_request_t *request);
+    /** @brief 可选：通知未执行请求已失效；可保留只读响应，禁止执行任何写副作用。 */
+    void (*discarded)(void *ctx, const gs232b_control_request_t *request);
 } gs232b_control_executor_t;
 
 typedef struct {
@@ -118,6 +123,7 @@ typedef struct {
     size_t size;
     bool is_position;
     gs232b_position_command_t position;
+    uint64_t reply_id;
 } gs232b_control_queued_t;
 
 struct gs232b_control {
@@ -144,6 +150,7 @@ struct gs232b_control {
     bool idle_timer_running;
     bool epoch_exhausted;
     bool fault_seen;
+    bool dispatching;
     bool initialized;
 };
 

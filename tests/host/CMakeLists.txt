@@ -11,6 +11,35 @@ enable_testing()
 
 find_package(Threads REQUIRED)
 
+foreach(adc_test IN ITEMS esp_adc_tests esp_adc_motion_tests)
+    add_executable(${adc_test}
+        ${adc_test}.c
+        ../fakes/esp_idf/adc_api.c
+        ../fakes/esp_idf/adc_queue.c
+        ../../src/platform/esp_adc.c
+        ../../src/core/types.c
+        ../../src/core/ports.c
+        ../../src/core/coordinates.c
+        ../../src/core/feedback.c
+        ../../src/core/persistence.c
+        ../../src/core/output_manager.c
+        ../../src/core/motion.c
+        ../../src/core/motion_control.c
+        ../../src/core/motion_feedback.c
+    )
+    # NOTE: IDF API 替身仅在这两个原生目标可见，直接编译实际板级适配器。
+    target_include_directories(${adc_test} PRIVATE ../../include ../fakes/esp_idf)
+    target_compile_definitions(${adc_test} PRIVATE ESP_PLATFORM)
+    target_link_libraries(${adc_test} PRIVATE Threads::Threads)
+    set_target_properties(${adc_test} PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${adc_test} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME ${adc_test} COMMAND ${adc_test})
+    set_tests_properties(${adc_test} PROPERTIES TIMEOUT 15)
+endforeach()
+
 foreach(spi_test IN ITEMS shared_spi_tests w5500_reset_tests)
     add_executable(${spi_test}
         ${spi_test}.c

@@ -8,8 +8,8 @@ idf_component_register(
          "core/command_sequence.c" "core/command_calibration.c"
          "core/gs_dispatcher.c" "core/gs_commands.c" "core/gs_replies.c"
          "platform/shared_spi.c" "platform/w5500_reset.c"
-         "platform/esp_shared_spi.c" "platform/esp_w5500.c"
+         "platform/esp_shared_spi.c" "platform/esp_w5500.c" "platform/esp_adc.c"
     INCLUDE_DIRS "." "../include"
-    REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_eth esp_timer
+    REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_eth esp_timer esp_adc
              nvs_flash w5500
 )

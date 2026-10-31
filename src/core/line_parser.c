@@ -249,6 +249,15 @@ gs232b_error_t gs232b_line_parser_tick(gs232b_line_parser_t *parser,
     return GS232B_OK;
 }
 
+void gs232b_line_parser_invalidate(gs232b_line_parser_t *parser)
+{
+    if (parser != NULL && parser->active) {
+        parser->length = 0;
+        parser->discarding = true;
+        parser->error_reported = true;
+    }
+}
+
 gs232b_error_t gs232b_line_parser_feed(gs232b_line_parser_t *parser,
                                        const uint8_t *bytes, size_t size,
                                        gs232b_time_us_t now_us,

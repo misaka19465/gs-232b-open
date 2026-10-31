@@ -1,0 +1,196 @@
+#ifndef GS232B_COMMAND_CONTROL_H
+#define GS232B_COMMAND_CONTROL_H
+
+#include "gs232b/line_parser.h"
+#include "gs232b/ports.h"
+
+#define GS232B_CONTROL_MAX_SESSIONS 7U
+#define GS232B_CONTROL_REQUESTS_PER_SESSION 8U
+#define GS232B_CONTROL_MAX_REQUESTS \
+    (GS232B_CONTROL_MAX_SESSIONS * GS232B_CONTROL_REQUESTS_PER_SESSION)
+#define GS232B_CONTROL_FEED_MAX_BYTES 256U
+#define GS232B_CONTROL_IDLE_RELEASE_US UINT64_C(2000000)
+
+typedef enum {
+    GS232B_REQUEST_QUERY = 0,
+    GS232B_REQUEST_WRITE,
+    GS232B_REQUEST_OWNER_GET,
+    GS232B_REQUEST_OWNER_TAKE,
+    GS232B_REQUEST_OWNER_RELEASE,
+    GS232B_REQUEST_STOP_AZ,
+    GS232B_REQUEST_STOP_EL,
+    GS232B_REQUEST_STOP_ALL
+} gs232b_request_access_t;
+
+typedef struct {
+    gs232b_command_context_t context;
+    gs232b_line_kind_t kind;
+    gs232b_request_access_t access;
+    gs232b_byte_span_t line;
+} gs232b_control_request_t;
+
+typedef struct {
+    bool axes_active[GS232B_AXIS_COUNT]; /* NOTE: 包含尚未输出的目标和换向等待。 */
+    bool output_stopped; /* NOTE: 仅已知方向全停且 PWM=0 时为 true。 */
+    gs232b_sequence_state_t sequence;
+    gs232b_interaction_t interaction;
+    bool faulted;
+} gs232b_control_activity_t;
+
+/**
+ * @brief 借用的同步执行端口；回调必须有界、非阻塞，不得重入修改控制器的 API。
+ * @note validate 只校验，不改变动作；execute 只处理已获准的完整普通行，
+ *       必须按 request.context.session 隔离交互和响应。QUERY 不得修改动作。
+ *       cancel 无条件清除全部序列、交互和其他暂存动作，不提交输出；stop
+ *       撤销 mask 指定轴的已接纳目标/手动/换向动作并立即提交停止，其他轴
+ *       已接纳的动作继续。tick 推进采样、运动安全检查和序列，不得另读命令。
+ *       snapshot 必须反映上述真实状态；运动故障由执行端锁定并全停。
+ *       complete 可省略；仅向来源会话报告结果，line 视图仅在回调期间有效；
+ *       可调用 control_snapshot 复制只读状态，OWNER GET/TAKE/RELEASE 在此编码响应。
+ *       普通请求 count=1；同周期同来源同种停止合并，count 是应答数量。
+ *       epoch 作废的普通请求静默丢弃。回调和 ctx 生命周期覆盖控制器。
+ */
+typedef struct {
+    void *ctx;
+    gs232b_error_t (*validate)(void *ctx, const gs232b_control_request_t *request);
+    gs232b_error_t (*execute)(void *ctx, const gs232b_control_request_t *request);
+    void (*cancel)(void *ctx);
+    gs232b_error_t (*stop)(void *ctx, uint8_t axis_mask);
+    gs232b_error_t (*tick)(void *ctx);
+    gs232b_error_t (*snapshot)(void *ctx, gs232b_control_activity_t *activity);
+    void (*complete)(void *ctx, const gs232b_control_request_t *request,
+                     gs232b_error_t result, uint32_t count);
+} gs232b_control_executor_t;
+
+typedef struct {
+    gs232b_command_context_t context;
+    uint32_t count;
+} gs232b_control_stop_notice_t;
+
+/* NOTE: 以下布局仅供静态分配；调用方不得直接修改、复制活动对象或重用工作区。 */
+typedef struct {
+    uint64_t generation;
+    gs232b_session_key_t key;
+    gs232b_transport_t transport;
+    bool connected;
+    gs232b_line_parser_t parser;
+    gs232b_command_context_t partial_context;
+    size_t pending_requests;
+    gs232b_control_stop_notice_t stops[3];
+} gs232b_control_session_t;
+
+typedef struct {
+    gs232b_command_context_t context;
+    gs232b_line_kind_t kind;
+    gs232b_request_access_t access;
+    size_t offset;
+    size_t size;
+} gs232b_control_queued_t;
+
+typedef struct {
+    gs232b_clock_t clock;
+    gs232b_control_executor_t executor;
+    gs232b_control_session_t sessions[GS232B_CONTROL_MAX_SESSIONS];
+    gs232b_control_queued_t requests[GS232B_CONTROL_MAX_REQUESTS];
+    uint8_t *request_bytes;
+    size_t request_capacity;
+    size_t request_bytes_used;
+    size_t request_count;
+    gs232b_session_key_t owner;
+    gs232b_command_epoch_t epoch;
+    gs232b_time_us_t idle_since_us;
+    uint8_t stop_mask;
+    bool full_stop_pending;
+    bool idle_timer_running;
+    bool epoch_exhausted;
+    bool fault_seen;
+    bool initialized;
+} gs232b_control_t;
+
+typedef struct {
+    gs232b_session_key_t owner;
+    gs232b_transport_t owner_transport; /* NOTE: 仅 owner 有效时有意义。 */
+    gs232b_command_epoch_t epoch;
+    gs232b_control_activity_t activity;
+    size_t pending_requests;
+    size_t request_bytes_used;
+    uint8_t stop_mask;
+    bool full_stop_pending;
+    bool idle_timer_running;
+    gs232b_time_us_t idle_since_us;
+    bool epoch_exhausted;
+} gs232b_control_snapshot_t;
+
+/**
+ * @brief 初始化静态控制核心，要求执行端无活动动作、序列或交互且已知全停。
+ * @param request_bytes 独占的普通请求字节池，至少 GS232B_GS_LINE_MAX_BYTES。
+ * @param request_capacity 固定字节池容量，建议 32KiB；耗尽拒绝整条新请求。
+ * @note 所有 API、执行端和传输入口必须由同一任务/外部锁串行调用。
+ *       不得重新初始化活动对象；重启实例须同时丢弃全部外部会话和输入。
+ */
+gs232b_error_t gs232b_control_init(gs232b_control_t *control, gs232b_clock_t clock,
+                                  gs232b_control_executor_t executor,
+                                  uint8_t *request_bytes, size_t request_capacity);
+
+/**
+ * @brief 打开会话，分配非零会话键；复用槽位时 generation 单调增加，不回绕。
+ * @param line_storage 会话独占工作区，至少 GS232B_GS_LINE_MAX_BYTES；借用至关闭。
+ * @note 传输适配器必须保存返回的完整键，不得仅保存 session_id。
+ */
+gs232b_error_t gs232b_control_session_open(gs232b_control_t *control,
+                                          gs232b_transport_t transport,
+                                          uint8_t *line_storage, size_t capacity,
+                                          gs232b_session_key_t *session);
+/** @brief 关闭完整会话键；控制者关闭时同步全停、清任务、撤权并作废旧输入。 */
+gs232b_error_t gs232b_control_session_close(gs232b_control_t *control,
+                                           gs232b_session_key_t session);
+
+/**
+ * @brief 在字节进入任何上游缓冲/队列前捕获会话和 epoch。
+ * @note 外部已排队的每段输入必须保留此上下文，不能在出队时重新盖章。
+ */
+gs232b_error_t gs232b_control_capture(gs232b_control_t *control,
+                                     gs232b_session_key_t session,
+                                     gs232b_command_context_t *context);
+/**
+ * @brief 接纳至多 256 字节，首字节上下文一直保留到 CR；不执行普通命令。
+ * @note 有效参数时总是消费整段，包括报错或队列满；返回段内首个错误。
+ *       旧 epoch 的字节也消费并丢弃到 CR；旧 generation 不接纳任何字节。
+ *       调用方须在块间让出调度，并持续调用 tick；只有独立完整 A/E/S 走停止槽。
+ */
+gs232b_error_t gs232b_control_feed(gs232b_control_t *control,
+                                  gs232b_command_context_t context,
+                                  const uint8_t *bytes, size_t size);
+
+/**
+ * @brief 显式申请，不抢占现有控制者；相同控制者重复申请可刷新空闲起点。
+ * @note 要求活动上下文及无待处理停止；初次取权要求执行端空闲且已知全停。
+ */
+gs232b_error_t gs232b_control_take(gs232b_control_t *control,
+                                  gs232b_command_context_t context);
+/**
+ * @brief 控制者在已知全停、无待运行序列和交互时释放，递增 epoch 并清旧输入。
+ * @note 活动中返回 BUSY；可先请求 S 完成全停和撤权。
+ */
+gs232b_error_t gs232b_control_release(gs232b_control_t *control,
+                                     gs232b_command_context_t context);
+/**
+ * @brief 将 A/E/S 放入独立停止槽；任何活动会话均可请求，不占普通队列。
+ * @note stop 只能是三种 STOP access；实际输出在下次 tick 最先处理。
+ *       UINT32_MAX 个同种未应答停止后报告资源耗尽，已锁存的停止仍保留。
+ */
+gs232b_error_t gs232b_control_request_stop(gs232b_control_t *control,
+                                          gs232b_command_context_t context,
+                                          gs232b_request_access_t stop);
+/**
+ * @brief 先处理停止，再推进执行端和半行超时，最多执行一条普通请求并检查空闲释放。
+ * @note A/E 也作废旧队列/半行，但保留当前控制者与另一轴已接纳动作；A+E 不等于 S。
+ *       故障首次出现时清任务并撤权，不重复尝试执行端已经失败的停机提交。
+ *       epoch 耗尽后永久拒绝写动作/取权；查询及停止仍可用，绝不回绕。
+ */
+gs232b_error_t gs232b_control_tick(gs232b_control_t *control);
+/** @brief 复制所有权、活动和队列值快照；不推进运动或接纳命令。 */
+gs232b_error_t gs232b_control_snapshot(const gs232b_control_t *control,
+                                      gs232b_control_snapshot_t *snapshot);
+
+#endif

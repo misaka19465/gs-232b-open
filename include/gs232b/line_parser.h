@@ -95,6 +95,12 @@ gs232b_error_t gs232b_line_parser_tick(gs232b_line_parser_t *parser,
                                        gs232b_time_us_t now_us,
                                        gs232b_line_event_fn event_fn, void *event_ctx);
 
+/**
+ * @brief 静默作废活动半行，持续丢弃到其终止 CR；空闲解析器保持空闲。
+ * @note 用于 epoch/交互切换；不得在事件回调中调用。后续超时也不重复报错。
+ */
+void gs232b_line_parser_invalidate(gs232b_line_parser_t *parser);
+
 typedef struct {
     const uint8_t *bytes;
     size_t size;

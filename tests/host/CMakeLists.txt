@@ -167,7 +167,8 @@ endif()
 add_test(NAME persistence COMMAND persistence_tests)
 set_tests_properties(persistence PROPERTIES TIMEOUT 5)
 
-foreach(motion_test IN ITEMS motion_tests motion_fault_tests)
+foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tests
+                             command_invalidation_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -180,6 +181,10 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests)
         ../../src/core/motion.c
         ../../src/core/motion_control.c
         ../../src/core/motion_feedback.c
+        ../../src/core/line_parser.c
+        ../../src/core/command_control.c
+        ../../src/core/command_input.c
+        ../../src/core/command_dispatch.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
     set_target_properties(${motion_test} PROPERTIES

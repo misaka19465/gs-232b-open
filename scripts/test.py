@@ -10,6 +10,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT = "esp32-c3-wroom-02u-n4"
 CAPTURE_ENVIRONMENT = "uart-capture-api-check"
+ETHERNET_ENVIRONMENT = "ethernet-api-check"
 
 
 def run(*command: str) -> None:
@@ -57,6 +58,37 @@ def check_capture_link() -> None:
     print("Verified ESP32-C3 / ESP-IDF 6.1.0 UART1 RX capture API link", flush=True)
 
 
+def check_ethernet_link() -> None:
+    """Verify real W5500, esp-netif and lwIP survive the empty app's linker GC."""
+    build = ROOT / ".pio" / "build" / ETHERNET_ENVIRONMENT
+    description = json.loads((build / "project_description.json").read_text())
+    if description["target"] != "esp32c3" or description["git_revision"] != "6.1.0":
+        raise RuntimeError("Revalidate Ethernet events for a different target or ESP-IDF version")
+    settings = json.loads((build / "config/sdkconfig.json").read_text())
+    if settings.get("ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF") is not True:
+        raise RuntimeError("Ethernet requires DNS per interface; regenerate stale sdkconfig")
+    compiler = Path(description["c_compiler"])
+    nm = compiler.with_name(compiler.name.removesuffix("gcc") + "nm")
+    symbols = subprocess.check_output(
+        [str(nm), "--defined-only", str(build / "firmware.elf")], text=True
+    )
+    defined = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    required = {
+        "gs232b_esp_ethernet_open", "gs232b_esp_ethernet_recover",
+        "gs232b_esp_ethernet_configure", "gs232b_esp_ethernet_service",
+        "gs232b_esp_ethernet_snapshot", "gs232b_esp_ethernet_close",
+        "gs232b_esp_w5500_create", "gs232b_w5500_reset_tick",
+        "gs232b_output_manager_set_w5500_reset", "gs232b_shared_spi_w5500_transfer",
+        "esp_eth_mac_new_w5500", "esp_eth_phy_new_w5500", "esp_eth_driver_install",
+        "esp_eth_new_netif_glue", "esp_netif_attach", "esp_netif_dhcpc_start",
+        "esp_netif_dhcpc_stop", "esp_netif_set_ip_info", "esp_netif_set_dns_info",
+        "esp_read_mac", "gpio_install_isr_service", "netif_add", "dhcp_start", "ethernet_input",
+    }
+    if missing := required - defined:
+        raise RuntimeError(f"Ethernet API link check missing symbols: {sorted(missing)}")
+    print("Verified ESP32-C3 / ESP-IDF 6.1.0 W5500 + esp-netif + lwIP API link", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -66,10 +98,13 @@ def main() -> int:
 
     try:
         if not args.host_only:
-            run("pio", "run", "-e", ENVIRONMENT, "-e", CAPTURE_ENVIRONMENT)
+            run("pio", "run", "-e", ENVIRONMENT, "-e", CAPTURE_ENVIRONMENT,
+                "-e", ETHERNET_ENVIRONMENT)
             check_target_console(ENVIRONMENT)
             check_target_console(CAPTURE_ENVIRONMENT)
+            check_target_console(ETHERNET_ENVIRONMENT)
             check_capture_link()
+            check_ethernet_link()
         run("cmake", "-S", "tests/host", "-B", "build/host")
         run("cmake", "--build", "build/host")
         run("ctest", "--test-dir", "build/host", "--output-on-failure", "--no-tests=error")

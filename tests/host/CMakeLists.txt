@@ -11,6 +11,25 @@ enable_testing()
 
 find_package(Threads REQUIRED)
 
+add_executable(esp_ethernet_tests
+    esp_ethernet_tests.c
+    ../fakes/esp_idf/ethernet_api.c ../fakes/esp_idf/ethernet_rtos.c ../fakes/spi_bus.c
+    ../../src/core/ethernet.c ../../src/core/types.c ../../src/core/ports.c
+    ../../src/core/output_manager.c ../../src/platform/shared_spi.c
+    ../../src/platform/w5500_reset.c ../../src/platform/esp_ethernet.c
+    ../../src/platform/esp_ethernet_driver.c ../../src/platform/esp_ethernet_events.c
+)
+target_include_directories(esp_ethernet_tests PRIVATE ../../include ../fakes/esp_idf ../fakes)
+target_compile_definitions(esp_ethernet_tests PRIVATE ESP_PLATFORM _POSIX_C_SOURCE=200809L)
+target_link_libraries(esp_ethernet_tests PRIVATE Threads::Threads)
+set_target_properties(esp_ethernet_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(esp_ethernet_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME esp_ethernet COMMAND esp_ethernet_tests)
+set_tests_properties(esp_ethernet PROPERTIES TIMEOUT 30)
+
 add_executable(esp_ledc_tests
     esp_ledc_tests.c
     ../fakes/esp_idf/ledc_api.c

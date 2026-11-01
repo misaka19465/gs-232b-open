@@ -1,5 +1,6 @@
 #include "gs232b/esp_w5500.h"
 
+#include "driver/gpio.h"
 #include "esp_eth_mac_w5500.h"
 #include "esp_eth_phy_w5500.h"
 
@@ -48,6 +49,11 @@ gs232b_error_t gs232b_esp_w5500_create(gs232b_shared_spi_t *bus,
     if (phy != NULL) { *phy = NULL; }
     if (bus == NULL || mac == NULL || phy == NULL) {
         return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    /* NOTE: 官方 WIZnet 驱动只添加 GPIO10 handler，不安装共享 GPIO ISR 服务。 */
+    const esp_err_t isr = gpio_install_isr_service(0);
+    if (isr != ESP_OK && isr != ESP_ERR_INVALID_STATE) {
+        return isr == ESP_ERR_NO_MEM ? GS232B_ERROR_RESOURCE_EXHAUSTED : GS232B_ERROR_IO;
     }
     eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
     eth_w5500_config_t chip = ETH_W5500_DEFAULT_CONFIG(SPI2_HOST, NULL);

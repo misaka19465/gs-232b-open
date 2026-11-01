@@ -35,7 +35,13 @@ bool gs232b_wifi_sta_config_valid(const gs232b_wifi_sta_config_t *config)
     if (ssid == 0 || !utf8((const unsigned char *)config->ssid, ssid) || password < 8) {
         return false;
     }
-    if (password < 64) { return true; }
+    if (password < 64) {
+        for (size_t i = 0; i < password; ++i) {
+            const unsigned char c = (unsigned char)config->password[i];
+            if (c < 0x20 || c > 0x7e) { return false; }
+        }
+        return true;
+    }
     for (size_t i = 0; i < password; ++i) {
         const char c = config->password[i];
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||

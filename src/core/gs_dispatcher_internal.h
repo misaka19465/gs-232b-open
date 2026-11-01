@@ -14,6 +14,9 @@ typedef enum {
 
 enum { GS_REPLY_WAITING = 0, GS_REPLY_READY, GS_REPLY_QUERY, GS_REPLY_SKIP };
 
+/** @brief 注册内置 RAM 候选配置命令，不启动网络或访问持久存储。 */
+gs232b_error_t gs232b_network_register(gs232b_dispatcher_t *dispatcher);
+
 /** @brief 严格识别普通 GS 命令；M/W 数字和校准交互由控制核心处理。 */
 gs_command_t gs232b_gs_command(const gs232b_control_request_t *request);
 /** @brief 只校验普通命令语法及能力，不产生运动、存储或输出副作用。 */

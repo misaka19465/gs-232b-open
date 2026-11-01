@@ -97,6 +97,9 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
     };
     error = gs232b_control_init(&dispatcher->control, motion->manager->clock, executor,
                                 request_bytes, capacity);
+    if (error == GS232B_OK) error = gs232b_config_transaction_init(&dispatcher->network_config,
+        motion->manager->clock, NULL, 0);
+    if (error == GS232B_OK) error = gs232b_network_register(dispatcher);
     dispatcher->initialized = error == GS232B_OK;
     return error;
 }
@@ -136,6 +139,7 @@ gs232b_error_t gs232b_dispatcher_session_close(gs232b_dispatcher_t *dispatcher,
         return GS232B_ERROR_STALE_SESSION;
     }
     const gs232b_error_t control_error = gs232b_control_session_close(&dispatcher->control, session);
+    gs232b_config_transaction_close(&dispatcher->network_config, session);
     const gs232b_error_t io_error = gs232b_session_close(&dispatcher->io, session);
     *slot = (gs232b_dispatcher_session_t){0};
     if (gs232b_session_key_equal(dispatcher->watchdog_session, session)) {
@@ -161,6 +165,7 @@ gs232b_error_t gs232b_dispatcher_feed(gs232b_dispatcher_t *dispatcher,
     if (dispatcher == NULL || !dispatcher->initialized) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
+    gs232b_config_transaction_expire(&dispatcher->network_config);
     const gs232b_error_t error = gs232b_control_feed(&dispatcher->control, context, bytes, size);
     const gs232b_error_t send_error = gs232b_gs_flush(dispatcher);
     return error != GS232B_OK ? error : send_error;
@@ -189,6 +194,7 @@ gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher)
     if (dispatcher == NULL || !dispatcher->initialized) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
+    gs232b_config_transaction_expire(&dispatcher->network_config);
     if (dispatcher->watchdog_timeout_us != 0) {
         if (!gs232b_session_key_equal(dispatcher->watchdog_session, dispatcher->control.owner)) {
             dispatcher->watchdog_timeout_us = 0;

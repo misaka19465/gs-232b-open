@@ -365,7 +365,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              sequence_commit_tests sequence_timing_tests
                              sequence_lifecycle_tests sequence_fault_tests
                              calibration_tests calibration_lifecycle_tests
-                             gs_commands_tests gs_sessions_tests gs_extensions_tests gs_calibration_tests
+                             gs_commands_tests gs_sessions_tests gs_extensions_tests gs_network_tests gs_calibration_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
                              esp_uart_capture_tests transport_fault_tests esp_ws_tests)
     add_executable(${motion_test}
@@ -390,6 +390,9 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/response_encoder.c
         ../../src/core/extension.c ../../src/core/extension_json.c
         ../../src/core/gs_extensions.c
+        ../../src/core/network_config.c ../../src/core/network_fields.c
+        ../../src/core/network_replies.c ../../src/core/gs_network.c
+        ../../src/core/ethernet.c ../../src/core/wifi_sta.c
         ../../src/core/command_upload.c
         ../../src/core/command_control.c
         ../../src/core/command_input.c
@@ -399,6 +402,9 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/gs_replies.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
+    if(motion_test STREQUAL "gs_network_tests")
+        target_sources(${motion_test} PRIVATE network_validation_tests.c network_lifecycle_tests.c)
+    endif()
     if(motion_test STREQUAL "esp_ws_tests")
         target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_network_tests.c
             ws_watchdog_tests.c

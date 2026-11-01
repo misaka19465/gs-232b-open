@@ -529,16 +529,16 @@ HTTP/WS 无 TLS，管理 token 不能提供链路加密；无线/有线非可信
 | 命令 | 用途与关键规则 |
 | --- | --- |
 | `!SYS INFO` | 版本、板型、能力、配置 schema、三个入口可用性；不暴露密码。 |
-| `!NET GET` | 已确认配置、实际运行状态、candidate/trial 摘要；密码只返回是否已设。 |
+| `!NET GET` | 返回 dispatcher 装载的已确认配置、candidate 摘要及可选运行快照；密码只返回是否已设。 |
 | `!ADMIN ENABLE` / `!ADMIN DISABLE` | 仅 UART1；启用时生成至少 128bit 随机 token，仅此响应返回一次；只保存校验材料；禁用/换 key 撤销现有网络管理身份，不删除运动校准。 |
 | `!SESSION AUTH {"token":"..."}` | 已启用的 ETH/STA 管理会话认证；失败不获得权限，不回显 token。 |
-| `!CFG BEGIN` | 建立单一候选事务并返回 ID；复制 active 到 RAM；其他配置写事务返回 CONFLICT。 |
-| `!NET SET {...}` | 仅修改当前候选的 ETH/Wi-Fi 字段；字段校验、凭据脱敏、未提供的字段保留。 |
-| `!CFG CHECK` | 完整校验，返回需改变的接口及错误；不触发网络切换。 |
-| `!CFG APPLY {"trial_s":120}` | 停止状态下应用候选；30～600 秒可选，默认 120；返回 trial ID。 |
-| `!CFG STATUS` | 查询 active revision、候选/试运行 ID、deadline 和各链路验证结果。 |
-| `!CFG CONFIRM {"trial_id":42}` | 在新管理会话或 UART1 确认匹配的试运行；成功后持久化。ID 42 仅为示例。 |
-| `!CFG ABORT` | 丢弃候选；若正在 trial 则恢复旧 active。 |
+| `!CFG BEGIN` | 已实现：建立单一 RAM 候选并返回 ID；复制 active；并发事务返回 CONFLICT。 |
+| `!NET SET {...}` | 已实现：仅合并指定候选字段；省略字段保留；拒绝非法 IPv4、掩码和 WPA2 凭据及脱敏占位密码。 |
+| `!CFG CHECK` | 已实现：完整校验候选并返回 ETH/Wi-Fi 变更标志；不触发网络切换或保存。 |
+| `!CFG APPLY {"trial_s":120}` | 设计项，当前未实现；候选不能应用到运行配置。 |
+| `!CFG STATUS` | 已实现：查询 active revision、候选 ID/base revision/deadline；不续期。 |
+| `!CFG CONFIRM {"trial_id":42}` | 设计项，当前未实现；未来用于新管理会话或 UART1 确认匹配试运行。 |
+| `!CFG ABORT` | 已实现：发起会话放弃自己的候选并清除凭据；当前无 trial 回滚。 |
 | `!PROV START {"timeout_s":600}` | 无运动等冲突时，启动有界 SoftAP；若已开启则返回现状，不能无限延长他人的试运行。 |
 | `!PROV STATUS` / `!PROV STOP` | 查窗口和地址 / 关闭 AP；密码仅 UART1 可查；STOP 在未确认 trial 中不得破坏恢复路径。 |
 | `!NET RESET {"confirm":"NETWORK_ONLY"}` | 仅 UART1、停止状态；清除网络域并进入未配网状态，不依赖按钮，不清机械配置。 |
@@ -550,7 +550,7 @@ HTTP/WS 无 TLS，管理 token 不能提供链路加密；无线/有线非可信
 
 `!SESSION WATCHDOG` 超时必须执行与控制者失联相同的全停及任务清理；仅当前控制者成功的完整命令或 `!SESSION PING` 续期，旁路查询、无效命令和 WS Pong 均不能续期。建议可设范围 1000～600000ms，默认 0；上传长序列时客户端必须选足以覆盖合法低速传输的时限，或在停机时关闭此可选功能。
 
-未 APPLY 的配置事务在发起会话关闭或 60 秒没有配置请求时丢弃；一旦进入 trial，计时和回滚独立于原会话，新授权连接/UART1 可凭 ID 接续确认。重复 CONFIRM 相同已确认 trial 可幂等返回结果；旧 ID、并发 revision 改动或错误 ID 必须拒绝。活动事务不能阻止读取状态或发送 S。
+未 APPLY 的候选在发起会话关闭或 60 秒没有成功的配置写入/校验时丢弃；查询、非法修改和校验失败不续期。一旦进入 trial，计时和回滚独立于原会话，新授权连接/UART1 可凭 ID 接续确认。重复 CONFIRM 相同已确认 trial 可幂等返回结果；旧 ID、并发 revision 改动或错误 ID 必须拒绝。活动事务不能阻止读取状态或发送 S。
 
 目标容差、换向停顿、最大连续运行时间及四档 PWM 参数在开发验收时确定，固定在固件中。用户通过 `O/O2` 保存零点，使用 `F/F2` 配合外部电位器调整满量程。缺少有效零点或采样反馈时允许查询与校准，但禁止软件发起运动；准备位置由控制箱手动完成。
 

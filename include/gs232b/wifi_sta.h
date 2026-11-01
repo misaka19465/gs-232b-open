@@ -57,7 +57,7 @@ typedef struct {
     uint64_t session_epoch;
 } gs232b_wifi_sta_snapshot_t;
 
-/** @brief 校验 UTF-8 SSID、WPA2 8..63 字节口令或 64 位十六进制 PSK；禁用可无凭据。 */
+/** @brief 校验 UTF-8 SSID、WPA2 8..63 字节可打印 ASCII 口令或 64 位十六进制 PSK；禁用可无凭据。 */
 bool gs232b_wifi_sta_config_valid(const gs232b_wifi_sta_config_t *config);
 /** @brief 失败次数从 1 起对应 1/2/4/8/16/30 秒，后续保持 30 秒，不溢出。 */
 gs232b_time_us_t gs232b_wifi_sta_retry_delay(uint32_t consecutive_failures);

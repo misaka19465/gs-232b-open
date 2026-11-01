@@ -4,6 +4,7 @@
 #include "gs232b/command_control.h"
 #include "gs232b/persistence.h"
 #include "gs232b/extension.h"
+#include "gs232b/network_config.h"
 
 #define GS232B_DISPATCHER_REPLIES_PER_SESSION 16U
 
@@ -33,6 +34,8 @@ typedef struct {
     gs232b_session_io_t io;
     gs232b_azimuth_display_settings_t display;
     uint64_t display_revision;
+    gs232b_config_transaction_t network_config;
+    gs232b_net_status_port_t network_status;
     gs232b_dispatcher_session_t sessions[GS232B_CONTROL_MAX_SESSIONS];
     gs232b_session_key_t watchdog_session;
     gs232b_time_us_t watchdog_timeout_us;
@@ -60,6 +63,10 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
 /** @brief 串行追加扩展处理器；复制命令名，借用 schema/ctx，重复注册返回 CONFLICT。 */
 gs232b_error_t gs232b_dispatcher_register_extension(gs232b_dispatcher_t *dispatcher,
     const gs232b_extension_handler_t *handler);
+
+/** @brief 在打开任何会话前装载已确认的网络配置；不启动或重配任何网络接口。 */
+gs232b_error_t gs232b_dispatcher_network_configure(gs232b_dispatcher_t *dispatcher,
+    const gs232b_net_config_t *active, uint64_t revision, gs232b_net_status_port_t status);
 
 /**
  * @brief 协议入口就绪后打开会话，只向新会话发送一次 Connect OK 加 CRLF。

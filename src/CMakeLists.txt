@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS "app_main.c" "core/types.c" "core/ports.c" "core/line_parser.c"
          "core/extension.c" "core/extension_json.c" "core/gs_extensions.c"
+         "core/network_config.c" "core/network_fields.c" "core/network_replies.c" "core/gs_network.c"
          "core/response_encoder.c" "core/coordinates.c" "core/feedback.c"
          "core/persistence.c" "core/output_manager.c" "core/motion.c" "core/speed.c"
          "core/motion_control.c" "core/motion_feedback.c" "platform/nvs_store.c"

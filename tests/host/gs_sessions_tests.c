@@ -71,7 +71,7 @@ static bool test_execution_rechecks_owner_before_writes(void)
     gs_fixture_t fixture;
     CHECK(gs_init(&fixture, true));
     static const char *const unsupported[] = {
-        "!OWNER TAKE\r", "!OWNER GET\r", "!OWNER RELEASE\r", "!NET GET\r"
+        "!OWNER TAKE\r", "!OWNER GET\r", "!OWNER RELEASE\r"
     };
     for (size_t i = 0; i < sizeof(unsupported) / sizeof(unsupported[0]); ++i) {
         CHECK(gs_feed(&fixture, 0, unsupported[i]) == GS232B_ERROR_NOT_FOUND);

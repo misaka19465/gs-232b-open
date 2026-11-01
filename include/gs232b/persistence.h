@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "gs232b/coordinates.h"
+#include "gs232b/ethernet.h"
 #include "gs232b/ports.h"
 
 #define GS232B_PERSISTENCE_RECORD_FORMAT_VERSION 1U
@@ -16,7 +17,8 @@
     (GS232B_PERSISTENCE_RECORD_HEADER_SIZE + GS232B_PERSISTENCE_MAX_PAYLOAD_SIZE + \
      GS232B_PERSISTENCE_RECORD_CHECKSUM_SIZE)
 #define GS232B_PERSISTENCE_SCHEMA_DISPLAY 1U
-#define GS232B_PERSISTENCE_SCHEMA_NETWORK 1U
+#define GS232B_PERSISTENCE_SCHEMA_NETWORK 2U
+#define GS232B_PERSISTENCE_SCHEMA_CONFIG_META 1U
 #define GS232B_NETWORK_SSID_MAX 32U
 #define GS232B_NETWORK_PASSWORD_MAX 64U
 
@@ -31,12 +33,14 @@ typedef enum {
 } gs232b_network_security_t;
 
 typedef struct {
+    gs232b_ethernet_config_t eth;
     bool enabled;
     gs232b_network_security_t security;
     uint8_t ssid_length;
     char ssid[GS232B_NETWORK_SSID_MAX + 1U];
     uint8_t password_length;
     char password[GS232B_NETWORK_PASSWORD_MAX + 1U];
+    uint32_t last_confirmed_trial_id;
 } gs232b_network_config_t;
 
 typedef struct {
@@ -133,5 +137,12 @@ gs232b_error_t gs232b_persistence_network_commit(
     uint64_t expected_revision,
     const gs232b_network_config_t *config,
     uint64_t *new_revision);
+
+/** @brief 读取跨重启单调递增的网络 trial ID 分配器；无记录时返回零。 */
+gs232b_error_t gs232b_persistence_trial_id_load(const gs232b_store_t *store,
+    uint32_t *last_trial_id);
+/** @brief 以 expected ID 比较并持久化下一个网络 trial ID。 */
+gs232b_error_t gs232b_persistence_trial_id_commit(const gs232b_store_t *store,
+    uint32_t expected_last_trial_id, uint32_t next_trial_id);
 
 #endif

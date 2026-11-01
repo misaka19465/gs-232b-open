@@ -222,8 +222,7 @@ gs232b_error_t gs232b_persistence_commit(const gs232b_store_t *store,
     }
 
     gs232b_persisted_record_t current;
-    gs232b_error_t error = gs232b_persistence_load_schema(store, domain, schema_version,
-                                                          &current);
+    gs232b_error_t error = gs232b_persistence_load(store, domain, &current);
     uint64_t revision = 0;
     if (error == GS232B_OK) {
         revision = current.revision;
@@ -243,7 +242,16 @@ gs232b_error_t gs232b_persistence_commit(const gs232b_store_t *store,
                                       (uint16_t)payload_size, bytes);
     error = gs232b_store_save(store, domain, bytes, size);
     if (error != GS232B_OK) {
-        return error;
+        /* NOTE: a store may report an error after its atomic selector was committed. */
+        gs232b_persisted_record_t uncertain;
+        const gs232b_error_t readback = gs232b_persistence_load(store, domain, &uncertain);
+        if (readback != GS232B_OK || uncertain.revision != next_revision ||
+            uncertain.schema_version != schema_version || uncertain.payload_size != payload_size ||
+            (payload_size != 0 && memcmp(uncertain.payload, payload, payload_size) != 0)) {
+            return error;
+        }
+        *new_revision = next_revision;
+        return GS232B_OK;
     }
 
     gs232b_persisted_record_t committed;
@@ -323,7 +331,8 @@ gs232b_error_t gs232b_persistence_display_commit(
 
 static bool network_config_valid(const gs232b_network_config_t *config)
 {
-    if (config == NULL || config->ssid_length > GS232B_NETWORK_SSID_MAX ||
+    if (config == NULL || !gs232b_ethernet_config_valid(&config->eth) ||
+        config->ssid_length > GS232B_NETWORK_SSID_MAX ||
         config->password_length > GS232B_NETWORK_PASSWORD_MAX ||
         config->security > GS232B_NETWORK_SECURITY_WPA2_PERSONAL ||
         config->ssid[config->ssid_length] != '\0' ||
@@ -342,58 +351,69 @@ static bool network_config_valid(const gs232b_network_config_t *config)
     return config->password_length >= 8U;
 }
 
+static bool decode_network_payload(const gs232b_persisted_record_t *record,
+                                   gs232b_network_config_t *config)
+{
+    const size_t legacy_size = 1U + 1U + GS232B_NETWORK_SSID_MAX + 1U +
+                               GS232B_NETWORK_PASSWORD_MAX + 1U;
+    const size_t current_size = 1U + 5U * sizeof(uint32_t) + legacy_size + sizeof(uint32_t);
+    memset(config, 0, sizeof(*config));
+    if (record->schema_version == 1U && record->payload_size == legacy_size) {
+        const uint8_t *payload = record->payload;
+        if (payload[0] > 1U) return false;
+        config->enabled = payload[0] != 0;
+        config->security = (gs232b_network_security_t)payload[1];
+        config->ssid_length = payload[2];
+        memcpy(config->ssid, &payload[3], GS232B_NETWORK_SSID_MAX);
+        config->password_length = payload[3U + GS232B_NETWORK_SSID_MAX];
+        memcpy(config->password, &payload[4U + GS232B_NETWORK_SSID_MAX],
+               GS232B_NETWORK_PASSWORD_MAX);
+        config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
+        config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
+        return network_config_valid(config);
+    }
+    if (record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK &&
+        record->payload_size == current_size) {
+        const uint8_t *payload = record->payload;
+        config->eth.mode = (gs232b_ethernet_mode_t)payload[0];
+        config->eth.ipv4.address = read_u32(&payload[1]);
+        config->eth.ipv4.netmask = read_u32(&payload[5]);
+        config->eth.ipv4.gateway = read_u32(&payload[9]);
+        config->eth.ipv4.dns[0] = read_u32(&payload[13]);
+        config->eth.ipv4.dns[1] = read_u32(&payload[17]);
+        const uint8_t *wifi = &payload[21];
+        config->enabled = wifi[0] != 0;
+        config->security = (gs232b_network_security_t)wifi[1];
+        config->ssid_length = wifi[2];
+        memcpy(config->ssid, &wifi[3], GS232B_NETWORK_SSID_MAX);
+        config->password_length = wifi[3U + GS232B_NETWORK_SSID_MAX];
+        memcpy(config->password, &wifi[4U + GS232B_NETWORK_SSID_MAX],
+               GS232B_NETWORK_PASSWORD_MAX);
+        config->last_confirmed_trial_id = read_u32(&payload[21U + legacy_size]);
+        config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
+        config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
+        return wifi[0] <= 1U && network_config_valid(config);
+    }
+    return false;
+}
+
 gs232b_error_t gs232b_persistence_network_load(
     const gs232b_store_t *store,
     gs232b_network_config_t *config,
     uint64_t *revision)
 {
-    if (config == NULL || revision == NULL) {
-        return GS232B_ERROR_INVALID_ARGUMENT;
-    }
+    if (config == NULL || revision == NULL) return GS232B_ERROR_INVALID_ARGUMENT;
     memset(config, 0, sizeof(*config));
     *revision = 0;
     gs232b_persisted_record_t record;
-    gs232b_error_t error = gs232b_persistence_load_schema(
-        store, GS232B_STORE_NETWORK, GS232B_PERSISTENCE_SCHEMA_NETWORK, &record);
-    if (error != GS232B_OK) {
-        return error;
-    }
-    const size_t expected_size = 1U + 1U + GS232B_NETWORK_SSID_MAX + 1U +
-                                 GS232B_NETWORK_PASSWORD_MAX + 1U;
-    bool valid_payload = false;
-    if (record.payload_size == expected_size) {
-        config->enabled = record.payload[0] != 0;
-        config->security = (gs232b_network_security_t)record.payload[1];
-        config->ssid_length = record.payload[2];
-        memcpy(config->ssid, &record.payload[3], GS232B_NETWORK_SSID_MAX);
-        config->password_length = record.payload[3U + GS232B_NETWORK_SSID_MAX];
-        memcpy(config->password, &record.payload[4U + GS232B_NETWORK_SSID_MAX],
-               GS232B_NETWORK_PASSWORD_MAX);
-        config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
-        config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
-        valid_payload = network_config_valid(config);
-    }
-    if (!valid_payload) {
-        gs232b_persisted_record_t previous;
-        error = gs232b_persistence_load_previous(store, GS232B_STORE_NETWORK, &previous);
-        if (error != GS232B_OK || previous.schema_version !=
-                GS232B_PERSISTENCE_SCHEMA_NETWORK || previous.payload_size != expected_size) {
+    gs232b_error_t error = gs232b_persistence_load(store, GS232B_STORE_NETWORK, &record);
+    if (error != GS232B_OK) return error;
+    if (!decode_network_payload(&record, config)) {
+        error = gs232b_persistence_load_previous(store, GS232B_STORE_NETWORK, &record);
+        if (error != GS232B_OK || !decode_network_payload(&record, config)) {
             memset(config, 0, sizeof(*config));
-            return GS232B_ERROR_CORRUPT;
-        }
-        record = previous;
-        config->enabled = record.payload[0] != 0;
-        config->security = (gs232b_network_security_t)record.payload[1];
-        config->ssid_length = record.payload[2];
-        memcpy(config->ssid, &record.payload[3], GS232B_NETWORK_SSID_MAX);
-        config->password_length = record.payload[3U + GS232B_NETWORK_SSID_MAX];
-        memcpy(config->password, &record.payload[4U + GS232B_NETWORK_SSID_MAX],
-               GS232B_NETWORK_PASSWORD_MAX);
-        config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
-        config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
-        if (!network_config_valid(config)) {
-            memset(config, 0, sizeof(*config));
-            return GS232B_ERROR_CORRUPT;
+            return error != GS232B_OK && error != GS232B_ERROR_NOT_FOUND ? error :
+                GS232B_ERROR_CORRUPT;
         }
     }
     *revision = record.revision;
@@ -413,18 +433,63 @@ gs232b_error_t gs232b_persistence_network_commit(
     if (!network_config_valid(config)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
-    const size_t payload_size = 1U + 1U + GS232B_NETWORK_SSID_MAX + 1U +
-                                GS232B_NETWORK_PASSWORD_MAX + 1U;
-    uint8_t payload[1U + 1U + GS232B_NETWORK_SSID_MAX + 1U +
-                    GS232B_NETWORK_PASSWORD_MAX + 1U] = {0};
-    payload[0] = config->enabled ? 1U : 0U;
-    payload[1] = (uint8_t)config->security;
-    payload[2] = config->ssid_length;
-    memcpy(&payload[3], config->ssid, config->ssid_length);
-    payload[3U + GS232B_NETWORK_SSID_MAX] = config->password_length;
-    memcpy(&payload[4U + GS232B_NETWORK_SSID_MAX], config->password,
-           config->password_length);
+    const size_t legacy_size = 1U + 1U + GS232B_NETWORK_SSID_MAX + 1U +
+                               GS232B_NETWORK_PASSWORD_MAX + 1U;
+    const size_t payload_size = 1U + 5U * sizeof(uint32_t) + legacy_size + sizeof(uint32_t);
+    uint8_t payload[1U + 5U * sizeof(uint32_t) + 1U + 1U + GS232B_NETWORK_SSID_MAX +
+                    1U + GS232B_NETWORK_PASSWORD_MAX + 1U + sizeof(uint32_t)] = {0};
+    payload[0] = (uint8_t)config->eth.mode;
+    write_u32(&payload[1], config->eth.ipv4.address);
+    write_u32(&payload[5], config->eth.ipv4.netmask);
+    write_u32(&payload[9], config->eth.ipv4.gateway);
+    write_u32(&payload[13], config->eth.ipv4.dns[0]);
+    write_u32(&payload[17], config->eth.ipv4.dns[1]);
+    uint8_t *wifi = &payload[21];
+    wifi[0] = config->enabled ? 1U : 0U;
+    wifi[1] = (uint8_t)config->security;
+    wifi[2] = config->ssid_length;
+    memcpy(&wifi[3], config->ssid, config->ssid_length);
+    wifi[3U + GS232B_NETWORK_SSID_MAX] = config->password_length;
+    memcpy(&wifi[4U + GS232B_NETWORK_SSID_MAX], config->password, config->password_length);
+    write_u32(&payload[21U + legacy_size], config->last_confirmed_trial_id);
     return gs232b_persistence_commit(store, GS232B_STORE_NETWORK, expected_revision,
                                      GS232B_PERSISTENCE_SCHEMA_NETWORK, payload,
                                      payload_size, new_revision);
+}
+
+gs232b_error_t gs232b_persistence_trial_id_load(const gs232b_store_t *store,
+    uint32_t *last_trial_id)
+{
+    if (last_trial_id == NULL) return GS232B_ERROR_INVALID_ARGUMENT;
+    *last_trial_id = 0;
+    gs232b_persisted_record_t record;
+    const gs232b_error_t error = gs232b_persistence_load_schema(store,
+        GS232B_STORE_CONFIG_META, GS232B_PERSISTENCE_SCHEMA_CONFIG_META, &record);
+    if (error == GS232B_ERROR_NOT_FOUND) return GS232B_OK;
+    if (error != GS232B_OK) return error;
+    if (record.payload_size != sizeof(uint32_t)) return GS232B_ERROR_CORRUPT;
+    *last_trial_id = read_u32(record.payload);
+    return GS232B_OK;
+}
+
+gs232b_error_t gs232b_persistence_trial_id_commit(const gs232b_store_t *store,
+    uint32_t expected_last_trial_id, uint32_t next_trial_id)
+{
+    if (next_trial_id == 0 || expected_last_trial_id == UINT32_MAX ||
+        next_trial_id != expected_last_trial_id + 1U) return GS232B_ERROR_INVALID_ARGUMENT;
+    uint32_t current_id = 0;
+    gs232b_error_t error = gs232b_persistence_trial_id_load(store, &current_id);
+    if (error != GS232B_OK) return error;
+    if (current_id != expected_last_trial_id) return GS232B_ERROR_CONFLICT;
+    gs232b_persisted_record_t record;
+    error = gs232b_persistence_load_schema(store, GS232B_STORE_CONFIG_META,
+        GS232B_PERSISTENCE_SCHEMA_CONFIG_META, &record);
+    uint64_t record_revision = 0;
+    if (error == GS232B_OK) record_revision = record.revision;
+    else if (error != GS232B_ERROR_NOT_FOUND) return error;
+    uint8_t payload[sizeof(uint32_t)];
+    write_u32(payload, next_trial_id);
+    uint64_t new_revision;
+    return gs232b_persistence_commit(store, GS232B_STORE_CONFIG_META, record_revision,
+        GS232B_PERSISTENCE_SCHEMA_CONFIG_META, payload, sizeof(payload), &new_revision);
 }

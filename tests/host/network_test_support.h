@@ -6,6 +6,11 @@
 typedef struct {
     gs232b_ethernet_snapshot_t eth;
     gs232b_wifi_sta_snapshot_t wifi;
+    gs232b_net_config_t applied_config;
+    size_t apply_calls;
+    size_t apply_failures_remaining;
+    gs232b_error_t apply_failure;
+    bool mutate_before_apply_failure;
 } runtime_t;
 
 static inline gs232b_error_t runtime_snapshot(void *ctx, gs232b_ethernet_snapshot_t *eth,
@@ -14,6 +19,19 @@ static inline gs232b_error_t runtime_snapshot(void *ctx, gs232b_ethernet_snapsho
     runtime_t *runtime = ctx;
     *eth = runtime->eth;
     *wifi = runtime->wifi;
+    return GS232B_OK;
+}
+
+static inline gs232b_error_t runtime_apply(void *ctx, const gs232b_net_config_t *config)
+{
+    runtime_t *runtime = ctx;
+    ++runtime->apply_calls;
+    if (runtime->apply_failures_remaining != 0) {
+        --runtime->apply_failures_remaining;
+        if (runtime->mutate_before_apply_failure) runtime->applied_config = *config;
+        return runtime->apply_failure;
+    }
+    runtime->applied_config = *config;
     return GS232B_OK;
 }
 
@@ -34,6 +52,8 @@ static inline bool setup(gs_fixture_t *fixture, runtime_t *runtime)
     };
     const gs232b_net_status_port_t port = {.ctx = runtime, .snapshot = runtime_snapshot};
     CHECK(gs232b_dispatcher_network_configure(&fixture->dispatcher, &active, 7, port) == GS232B_OK);
+    CHECK(gs232b_dispatcher_network_apply_configure(&fixture->dispatcher,
+        (gs232b_net_apply_port_t){.ctx = runtime, .apply = runtime_apply}) == GS232B_OK);
     runtime->eth.state = GS232B_ETHERNET_READY;
     runtime->eth.link_up = true;
     runtime->eth.ipv4_valid = true;

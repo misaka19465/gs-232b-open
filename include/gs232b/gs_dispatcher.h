@@ -36,6 +36,7 @@ typedef struct {
     uint64_t display_revision;
     gs232b_config_transaction_t network_config;
     gs232b_net_status_port_t network_status;
+    gs232b_net_apply_port_t network_apply;
     gs232b_dispatcher_session_t sessions[GS232B_CONTROL_MAX_SESSIONS];
     gs232b_session_key_t watchdog_session;
     gs232b_time_us_t watchdog_timeout_us;
@@ -67,6 +68,9 @@ gs232b_error_t gs232b_dispatcher_register_extension(gs232b_dispatcher_t *dispatc
 /** @brief 在打开任何会话前装载已确认的网络配置；不启动或重配任何网络接口。 */
 gs232b_error_t gs232b_dispatcher_network_configure(gs232b_dispatcher_t *dispatcher,
     const gs232b_net_config_t *active, uint64_t revision, gs232b_net_status_port_t status);
+/** @brief 设置完整配置应用端口；只允许在任何网络管理会话打开前调用。 */
+gs232b_error_t gs232b_dispatcher_network_apply_configure(gs232b_dispatcher_t *dispatcher,
+    gs232b_net_apply_port_t apply);
 
 /**
  * @brief 协议入口就绪后打开会话，只向新会话发送一次 Connect OK 加 CRLF。

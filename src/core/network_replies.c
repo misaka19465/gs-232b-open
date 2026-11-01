@@ -111,6 +111,31 @@ static void candidate(writer_t *writer, const gs232b_config_transaction_t *trans
     append(writer, "}");
 }
 
+static void trial(writer_t *writer, const gs232b_config_transaction_t *transaction, bool full)
+{
+    const gs232b_config_trial_t *value = &transaction->trial;
+    if (value->state == GS232B_CONFIG_TRIAL_NONE) {
+        append(writer, "null");
+        return;
+    }
+    const gs232b_time_us_t now = transaction->clock.now_us(transaction->clock.ctx);
+    const uint64_t remaining = value->state == GS232B_CONFIG_TRIAL_ACTIVE &&
+        now >= value->started_us && now < value->deadline_us ? value->deadline_us - now : 0;
+    const char *state = value->state == GS232B_CONFIG_TRIAL_ACTIVE ? "active" :
+        "rollback_pending";
+    append(writer, "{\"trial_id\":%" PRIu32 ",\"state\":\"%s\","
+        "\"base_revision\":%" PRIu64 ",\"timeout_s\":%" PRIu32
+        ",\"deadline_us\":%" PRIu64 ",\"remaining_us\":%" PRIu64,
+        value->id, state, value->base_revision, value->timeout_s,
+        value->deadline_us, remaining);
+    if (full) {
+        append(writer, ",\"config\":{");
+        config(writer, &value->config);
+        append(writer, "}");
+    }
+    append(writer, "}");
+}
+
 static void runtime(writer_t *writer, const gs232b_ethernet_snapshot_t *eth,
     const gs232b_wifi_sta_snapshot_t *wifi)
 {
@@ -137,7 +162,8 @@ gs232b_error_t gs232b_net_config_encode(const gs232b_config_transaction_t *trans
     append(&writer, "{\"active_revision\":%" PRIu64 ",\"active\":{", transaction->active_revision);
     config(&writer, &transaction->active);
     append(&writer, "},\"candidate\":"); candidate(&writer, transaction, true);
-    append(&writer, ",\"trial\":null,\"runtime\":");
+    append(&writer, ",\"trial\":"); trial(&writer, transaction, true);
+    append(&writer, ",\"runtime\":");
     if (status->snapshot == NULL) append(&writer, "null");
     else runtime(&writer, &eth, &wifi);
     append(&writer, "}");
@@ -152,7 +178,8 @@ gs232b_error_t gs232b_config_status_encode(const gs232b_config_transaction_t *tr
     writer_t writer = {data, capacity, 0, GS232B_OK};
     append(&writer, "{\"active_revision\":%" PRIu64 ",\"candidate\":", transaction->active_revision);
     candidate(&writer, transaction, false);
-    append(&writer, ",\"trial\":null}");
+    append(&writer, ",\"trial\":"); trial(&writer, transaction, false);
+    append(&writer, "}");
     if (writer.error == GS232B_OK) *size = writer.size;
     return writer.error;
 }

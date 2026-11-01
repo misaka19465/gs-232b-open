@@ -386,3 +386,20 @@ gs232b_error_t gs232b_json_uint32(gs232b_json_value_t value, uint32_t *number)
     *number = n;
     return GS232B_OK;
 }
+
+gs232b_error_t gs232b_json_uint64(gs232b_json_value_t value, uint64_t *number)
+{
+    if (number == NULL || value.type != GS232B_JSON_NUMBER || value.raw.bytes == NULL ||
+        value.raw.size == 0) return GS232B_ERROR_INVALID_ARGUMENT;
+    uint64_t n = 0;
+    for (size_t i = 0; i < value.raw.size; ++i) {
+        const uint8_t digit = value.raw.bytes[i];
+        if (digit < '0' || digit > '9' || (i != 0 && value.raw.bytes[0] == '0') ||
+            n > (UINT64_MAX - (digit - '0')) / 10U) {
+            return GS232B_ERROR_INVALID_ARGUMENT;
+        }
+        n = n * 10U + (digit - '0');
+    }
+    *number = n;
+    return GS232B_OK;
+}

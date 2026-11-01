@@ -6,6 +6,8 @@
 #include "gs232b/wifi_sta.h"
 
 #define GS232B_CONFIG_IDLE_TIMEOUT_US UINT64_C(60000000)
+#define GS232B_CONFIG_TRIAL_MIN_SECONDS 30U
+#define GS232B_CONFIG_TRIAL_MAX_SECONDS 600U
 
 typedef struct {
     /* NOTE: DHCP 模式仍保留静态字段供后续编辑；实际 DHCP 驱动配置须使用零 IPv4。 */
@@ -25,6 +27,28 @@ typedef struct {
         gs232b_wifi_sta_snapshot_t *wifi);
 } gs232b_net_status_port_t;
 
+/** @brief 请求运行时切换完整网络配置；OK/WOULD_BLOCK 表示整个请求已被接纳。 */
+typedef struct {
+    void *ctx;
+    gs232b_error_t (*apply)(void *ctx, const gs232b_net_config_t *config);
+} gs232b_net_apply_port_t;
+
+typedef enum {
+    GS232B_CONFIG_TRIAL_NONE = 0,
+    GS232B_CONFIG_TRIAL_ACTIVE,
+    GS232B_CONFIG_TRIAL_ROLLBACK_PENDING
+} gs232b_config_trial_state_t;
+
+typedef struct {
+    gs232b_config_trial_state_t state;
+    gs232b_net_config_t config;
+    uint32_t id;
+    uint32_t timeout_s;
+    uint64_t base_revision;
+    gs232b_time_us_t started_us;
+    gs232b_time_us_t deadline_us;
+} gs232b_config_trial_t;
+
 /* NOTE: 以下布局只供静态分配；所有操作须与 dispatcher 在同一控制任务串行执行。 */
 typedef struct {
     gs232b_clock_t clock;
@@ -36,6 +60,9 @@ typedef struct {
     gs232b_time_us_t renewed_us;
     uint32_t last_id;
     uint32_t candidate_id;
+    uint32_t last_trial_id;
+    uint32_t last_confirmed_trial_id;
+    gs232b_config_trial_t trial;
 } gs232b_config_transaction_t;
 
 /** @brief 完整校验 ETH 静态网络及 WPA2 凭据；DHCP 忽略保留的静态字段。 */
@@ -68,5 +95,19 @@ gs232b_error_t gs232b_config_transaction_check(gs232b_config_transaction_t *tran
 /** @brief 发起者显式放弃候选并清除凭据，不修改 active。 */
 gs232b_error_t gs232b_config_transaction_abort(gs232b_config_transaction_t *transaction,
     gs232b_session_key_t session);
+
+/** @brief 应用已校验候选，持久化唯一 trial ID，并启动有界试运行期限。 */
+gs232b_error_t gs232b_config_trial_apply(gs232b_config_transaction_t *transaction,
+    gs232b_session_key_t session, uint32_t candidate_id, uint32_t timeout_s,
+    const gs232b_store_t *store, gs232b_net_apply_port_t apply, uint32_t *trial_id);
+/** @brief 通过 trial ID 原子持久化配置；最近一次成功确认可安全重复调用。 */
+gs232b_error_t gs232b_config_trial_confirm(gs232b_config_transaction_t *transaction,
+    uint32_t trial_id, const gs232b_store_t *store, gs232b_net_apply_port_t apply);
+/** @brief 放弃匹配的试运行并恢复完整 active；失败时保留可重试的回滚状态。 */
+gs232b_error_t gs232b_config_trial_abort(gs232b_config_transaction_t *transaction,
+    uint32_t trial_id, gs232b_net_apply_port_t apply);
+/** @brief 到期或回滚待重试时恢复 active；失败留在 rollback_pending。 */
+gs232b_error_t gs232b_config_trial_tick(gs232b_config_transaction_t *transaction,
+    gs232b_net_apply_port_t apply);
 
 #endif

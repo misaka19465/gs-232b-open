@@ -48,5 +48,7 @@ gs232b_error_t gs232b_json_string_encode(gs232b_byte_span_t text,
     uint8_t *buffer, size_t capacity, size_t *size);
 /** @brief 严格读取无符号十进制整数，不接受负数、小数、指数或溢出。 */
 gs232b_error_t gs232b_json_uint32(gs232b_json_value_t value, uint32_t *number);
+/** @brief 严格读取无符号十进制 uint64 整数，不接受负数、小数、指数或溢出。 */
+gs232b_error_t gs232b_json_uint64(gs232b_json_value_t value, uint64_t *number);
 
 #endif

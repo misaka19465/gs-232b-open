@@ -108,7 +108,7 @@ set_tests_properties(speed_levels PROPERTIES TIMEOUT 5)
 add_executable(uart_baud_store_tests uart_baud_store_tests.c
     ../../src/core/uart_baud.c ../../src/core/uart_baud_store.c
     ../../src/core/persistence.c ../../src/core/ports.c ../../src/core/types.c
-    ../../src/core/coordinates.c ../fakes/fakes.c)
+    ../../src/core/coordinates.c ../../src/core/ethernet.c ../fakes/fakes.c)
 target_include_directories(uart_baud_store_tests PRIVATE ../../include ../fakes)
 set_target_properties(uart_baud_store_tests PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
@@ -144,6 +144,7 @@ foreach(adc_test IN ITEMS esp_adc_tests esp_adc_motion_tests)
         ../../src/core/ports.c
         ../../src/core/coordinates.c
         ../../src/core/feedback.c
+        ../../src/core/ethernet.c
         ../../src/core/persistence.c
         ../../src/core/output_manager.c
         ../../src/core/motion.c
@@ -317,6 +318,7 @@ add_executable(feedback_tests
     ../../src/core/ports.c
     ../../src/core/coordinates.c
     ../../src/core/feedback.c
+    ../../src/core/ethernet.c
     ../../src/core/persistence.c
 )
 target_include_directories(feedback_tests PRIVATE
@@ -342,6 +344,7 @@ add_executable(persistence_tests
     ../../src/core/ports.c
     ../../src/core/coordinates.c
     ../../src/core/feedback.c
+    ../../src/core/ethernet.c
     ../../src/core/persistence.c
 )
 target_include_directories(persistence_tests PRIVATE

@@ -3,6 +3,7 @@
 
 #include "gs232b/command_control.h"
 #include "gs232b/persistence.h"
+#include "gs232b/extension.h"
 
 #define GS232B_DISPATCHER_REPLIES_PER_SESSION 16U
 
@@ -20,6 +21,8 @@ typedef struct {
     size_t head;
     size_t count;
     gs232b_error_t failure;
+    uint64_t extension_reply_id;
+    uint8_t extension_data[GS232B_EXTENSION_DATA_MAX_BYTES];
     gs232b_dispatcher_reply_t replies[GS232B_DISPATCHER_REPLIES_PER_SESSION];
 } gs232b_dispatcher_session_t;
 
@@ -35,6 +38,7 @@ typedef struct {
     gs232b_time_us_t watchdog_timeout_us;
     gs232b_time_us_t watchdog_renewed_us;
     bool initialized;
+    gs232b_extension_registry_t extensions;
 } gs232b_dispatcher_t;
 
 /**
@@ -46,12 +50,16 @@ typedef struct {
  * @param request_bytes 独占请求池，至少 GS232B_LINE_STORAGE_BYTES。
  * @param capacity 请求池字节数。
  * @note 所有入口和运动核心必须串行调用；回调不得重入。会话及输入必须经本门面，
- *       control 仅供只读快照。扩展命令不属于此 dispatcher，统一返回协议错误。
+ *       control 仅供只读快照。扩展经注册表验证及分派，独立输出单行 JSON。
  *       显示域加载失败会拒绝初始化；既有零点应由启动流程加载到 motion。
  */
 gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
     gs232b_motion_t *motion, gs232b_store_t store, gs232b_session_io_t io,
     uint8_t *request_bytes, size_t capacity);
+
+/** @brief 串行追加扩展处理器；复制命令名，借用 schema/ctx，重复注册返回 CONFLICT。 */
+gs232b_error_t gs232b_dispatcher_register_extension(gs232b_dispatcher_t *dispatcher,
+    const gs232b_extension_handler_t *handler);
 
 /**
  * @brief 协议入口就绪后打开会话，只向新会话发送一次 Connect OK 加 CRLF。

@@ -74,8 +74,14 @@ static bool test_execution_rechecks_owner_before_writes(void)
         "!OWNER TAKE\r", "!OWNER GET\r", "!OWNER RELEASE\r", "!NET GET\r"
     };
     for (size_t i = 0; i < sizeof(unsupported) / sizeof(unsupported[0]); ++i) {
-        CHECK(gs_feed(&fixture, 0, unsupported[i]) == GS232B_ERROR_INVALID_ARGUMENT);
-        CHECK(gs_expect(&fixture, 0, "?>\r\n"));
+        CHECK(gs_feed(&fixture, 0, unsupported[i]) == GS232B_ERROR_NOT_FOUND);
+        gs232b_extension_request_t request;
+        CHECK(gs232b_extension_parse((const uint8_t *)unsupported[i],
+            strlen(unsupported[i]) - 1U, &request) == GS232B_OK);
+        char expected[160];
+        snprintf(expected, sizeof(expected),
+            "!{\"ok\":false,\"cmd\":\"%s\",\"error\":\"NOT_FOUND\"}\r\n", request.cmd);
+        CHECK(gs_expect(&fixture, 0, expected));
         CHECK(!gs232b_session_key_valid(fixture.dispatcher.control.owner));
     }
     CHECK(gs_feed(&fixture, 0, "R\r") == GS232B_OK);

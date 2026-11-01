@@ -257,6 +257,7 @@ gs232b_error_t gs232b_control_input_lost(gs232b_control_t *control,
     if (!gs232b_control_valid(control)) { return GS232B_ERROR_INVALID_ARGUMENT; }
     gs232b_control_session_t *slot = gs232b_control_find(control, session);
     if (slot == NULL) { return GS232B_ERROR_STALE_SESSION; }
+    const gs232b_line_kind_t lost_kind = slot->parser.kind;
     gs232b_error_t error = GS232B_OK;
     if (gs232b_session_key_equal(control->owner, session)) {
         error = gs232b_control_stop_now(control, GS232B_CONTROL_ALL_AXES, true);
@@ -270,7 +271,7 @@ gs232b_error_t gs232b_control_input_lost(gs232b_control_t *control,
     }
     gs232b_control_resync_input(control, session);
     gs232b_control_request_t notice = {
-        .context = {session, control->epoch}, .kind = GS232B_LINE_GS
+        .context = {session, control->epoch}, .kind = lost_kind
     };
     if (control->executor.submitted != NULL) {
         control->executor.submitted(control->executor.ctx, &notice);

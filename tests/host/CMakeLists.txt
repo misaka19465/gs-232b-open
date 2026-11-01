@@ -263,6 +263,8 @@ set_tests_properties(line_parser PROPERTIES TIMEOUT 5)
 add_executable(response_encoder_tests
     response_encoder_tests.c
     ../../src/core/response_encoder.c
+    ../../src/core/extension.c ../../src/core/extension_json.c
+    ../../src/core/types.c ../../src/core/coordinates.c
 )
 target_include_directories(response_encoder_tests PRIVATE ../../include)
 set_target_properties(response_encoder_tests PROPERTIES
@@ -276,6 +278,20 @@ endif()
 
 add_test(NAME response_encoder COMMAND response_encoder_tests)
 set_tests_properties(response_encoder PROPERTIES TIMEOUT 5)
+
+add_executable(extension_tests
+    extension_tests.c
+    ../../src/core/extension.c ../../src/core/extension_json.c
+    ../../src/core/types.c ../../src/core/coordinates.c
+)
+target_include_directories(extension_tests PRIVATE ../../include)
+set_target_properties(extension_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(extension_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME extension COMMAND extension_tests)
+set_tests_properties(extension PROPERTIES TIMEOUT 5)
 
 add_executable(coordinates_tests
     coordinates_tests.c
@@ -349,7 +365,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              sequence_commit_tests sequence_timing_tests
                              sequence_lifecycle_tests sequence_fault_tests
                              calibration_tests calibration_lifecycle_tests
-                             gs_commands_tests gs_sessions_tests gs_calibration_tests
+                             gs_commands_tests gs_sessions_tests gs_extensions_tests gs_calibration_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
                              esp_uart_capture_tests transport_fault_tests esp_ws_tests)
     add_executable(${motion_test}
@@ -372,6 +388,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/command_sequence.c
         ../../src/core/command_calibration.c
         ../../src/core/response_encoder.c
+        ../../src/core/extension.c ../../src/core/extension_json.c
+        ../../src/core/gs_extensions.c
         ../../src/core/command_upload.c
         ../../src/core/command_control.c
         ../../src/core/command_input.c

@@ -18,8 +18,12 @@ enum { GS_REPLY_WAITING = 0, GS_REPLY_READY, GS_REPLY_QUERY, GS_REPLY_SKIP };
 gs_command_t gs232b_gs_command(const gs232b_control_request_t *request);
 /** @brief 只校验普通命令语法及能力，不产生运动、存储或输出副作用。 */
 gs232b_error_t gs232b_gs_validate(void *ctx, const gs232b_control_request_t *request);
+gs232b_error_t gs232b_extension_validate_request(void *ctx,
+    const gs232b_control_request_t *request);
 /** @brief 执行已通过控制权检查的运动/速度/模式命令，查询保持只读。 */
 gs232b_error_t gs232b_gs_execute(void *ctx, const gs232b_control_request_t *request);
+gs232b_error_t gs232b_extension_execute_request(void *ctx,
+    const gs232b_control_request_t *request, gs232b_response_t *response);
 /** @brief 从实际状态构造查询正文；失效反馈不使用旧值或伪造零。 */
 gs232b_error_t gs232b_gs_query(gs232b_dispatcher_t *dispatcher,
     gs_command_t command, gs232b_response_t *response);

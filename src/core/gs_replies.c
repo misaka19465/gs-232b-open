@@ -90,12 +90,21 @@ void gs232b_gs_complete(void *ctx, const gs232b_control_request_t *request,
         return;
     }
     reply->response = (gs232b_response_t){.kind = GS232B_RESPONSE_SUCCESS};
-    if (result == GS232B_OK && request->response != NULL) {
+    if (request->kind == GS232B_LINE_EXTENSION) {
+        reply->response.kind = GS232B_RESPONSE_EXTENSION;
+        gs232b_extension_request_t extension;
+        if (result == GS232B_OK && request->response != NULL) {
+            reply->response = *request->response;
+        } else {
+            (void)gs232b_extension_parse(request->line.bytes, request->line.size, &extension);
+            gs232b_extension_response_error(extension.cmd, result, &reply->response.data.extension);
+        }
+    } else if (result == GS232B_OK && request->response != NULL) {
         reply->response = *request->response;
     } else if (result == GS232B_OK && request->access == GS232B_REQUEST_QUERY) {
         result = gs232b_gs_query(dispatcher, (gs_command_t)reply->command, &reply->response);
     }
-    if (result != GS232B_OK) {
+    if (result != GS232B_OK && request->kind != GS232B_LINE_EXTENSION) {
         reply->response.kind = GS232B_RESPONSE_ERROR;
     }
     renew_watchdog(dispatcher, request->context.session, result);
@@ -107,6 +116,15 @@ void gs232b_gs_discarded(void *ctx, const gs232b_control_request_t *request)
     gs232b_dispatcher_session_t *slot = session_slot(ctx, request->context.session);
     gs232b_dispatcher_reply_t *reply = find_reply(slot, request->reply_id);
     if (reply != NULL) {
+        if (request->kind == GS232B_LINE_EXTENSION) {
+            gs232b_extension_request_t extension;
+            (void)gs232b_extension_parse(request->line.bytes, request->line.size, &extension);
+            reply->response.kind = GS232B_RESPONSE_EXTENSION;
+            gs232b_extension_response_error(extension.cmd, GS232B_ERROR_CONFLICT,
+                &reply->response.data.extension);
+            reply->state = GS_REPLY_READY;
+            return;
+        }
         /* NOTE: 仅保留明确只读的 GS 查询；N/空行若已归类为校准输入则静默作废。
          * 查询在停机完成后构造，不在停止动作之前执行普通请求。 */
         reply->state = request->access == GS232B_REQUEST_QUERY &&
@@ -150,7 +168,7 @@ gs232b_error_t gs232b_gs_flush(gs232b_dispatcher_t *dispatcher)
                 }
             }
             if (reply->state != GS_REPLY_SKIP) {
-                uint8_t bytes[512];
+                uint8_t bytes[GS232B_EXTENSION_RESPONSE_MAX_BYTES];
                 size_t size;
                 gs232b_error_t error = gs232b_response_encode(&reply->response,
                     bytes, sizeof(bytes), &size);
@@ -163,6 +181,7 @@ gs232b_error_t gs232b_gs_flush(gs232b_dispatcher_t *dispatcher)
                 }
             }
             slot->head = (slot->head + 1U) % GS232B_DISPATCHER_REPLIES_PER_SESSION;
+            if (slot->extension_reply_id == reply->id) slot->extension_reply_id = 0;
             --slot->count;
         }
         if (slot->failure != GS232B_OK) {

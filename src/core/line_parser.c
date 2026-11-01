@@ -231,7 +231,7 @@ gs232b_error_t gs232b_line_parser_feed(gs232b_line_parser_t *parser,
             continue;
         }
         ++parser->length;
-        const bool valid = parser->kind == GS232B_LINE_EXTENSION ? byte >= 0x20 :
+        const bool valid = parser->kind == GS232B_LINE_EXTENSION ? byte >= 0x20 && byte != 0x7f :
                                                             byte >= 0x20 && byte <= 0x7e;
         if (!valid) {
             discard_line(parser, GS232B_LINE_ERROR_INVALID_BYTE);

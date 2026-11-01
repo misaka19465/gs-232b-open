@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "gs232b/types.h"
+#include "gs232b/extension.h"
 
 typedef enum {
     GS232B_RESPONSE_SUCCESS = 0,
@@ -21,7 +22,8 @@ typedef enum {
     GS232B_RESPONSE_ZERO_ELEVATION_PROMPT,
     GS232B_RESPONSE_CALIBRATION_COMPLETE,
     GS232B_RESPONSE_CALIBRATION_AZIMUTH,
-    GS232B_RESPONSE_CALIBRATION_BOTH
+    GS232B_RESPONSE_CALIBRATION_BOTH,
+    GS232B_RESPONSE_EXTENSION
 } gs232b_response_kind_t;
 
 typedef struct {
@@ -39,6 +41,7 @@ typedef struct {
             bool mode_450;
             bool south_center;
         } display;
+        gs232b_extension_response_t extension;
     } data;
 } gs232b_response_t;
 

@@ -518,7 +518,7 @@ NVS 使用带 schema version、revision 及校验的整体配置记录；已确�
 
 命令采用 `!DOMAIN ACTION [JSON对象]<CR>`，与官方单字母命令分离。扩展命令不改变普通 GS 响应：一条完成的扩展请求恰好返回一行 `!<JSON对象>\r\n`，例如 `!{"ok":true,"cmd":"NET GET","data":{...}}\r\n`；错误使用 `ok:false`、稳定 `error` 字段和可选 `detail`。不在普通 GS 通道推送异步事件，以状态轮询读取配置进度。
 
-扩展行初始上限 2048 字节，JSON 禁止原始 CR/LF 控制字符，允许 `\uXXXX` 等合法转义。定义 `INVALID_ARGUMENT / BUSY / NOT_OWNER / NOT_AUTHORIZED / NOT_READY / CONFLICT / TIMEOUT / HARDWARE_FAULT` 等稳定错误；普通 GS 命令仍用其自身错误标记，不用这些 JSON 错误代替。
+扩展行初始上限 2048 字节，JSON 禁止原始 CR/LF 控制字符，允许 `\uXXXX` 等合法转义。注册 handler 提供 JSON schema，框架拒绝未知字段、缺失必需字段、重复键、类型不匹配、非法 UTF-8/代理对和超出字符串字节上限的请求；接纳和执行前的检查不得产生副作用。定义 `INVALID_ARGUMENT / BUSY / NOT_OWNER / NOT_AUTHORIZED / NOT_READY / CONFLICT / TIMEOUT / HARDWARE_FAULT` 等稳定错误；扩展始终返回 `!<JSON>\r\n`，普通 GS 命令仍用其自身错误标记，不用这些 JSON 错误代替。
 
 UART1 视为本地管理入口。普通网络 GS 连接初版面向可信局域网；只读信息与运动所有权不等于管理权限。STA/ETH 上的网络配置扩展写入默认禁用，若启用则需设备独立 token，经 `!SESSION AUTH` 显式建立会话管理身份；不把 token 放入 URL 查询串。官方 `O/O2/F/F2` 仍按控制权及停机规则执行，不要求另行管理认证。SoftAP 管理入口只在受保护的配网窗口开放，凭独立 AP 密码进入后仅可配置网络，不可改机械限位、校准或开始运动。
 

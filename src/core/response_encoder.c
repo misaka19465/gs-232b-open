@@ -83,6 +83,10 @@ gs232b_error_t gs232b_response_encode(const gs232b_response_t *response,
     if (response == NULL || (capacity != 0 && buffer == NULL)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
+    if (response->kind == GS232B_RESPONSE_EXTENSION) {
+        return gs232b_extension_response_encode(&response->data.extension,
+            buffer, capacity, size);
+    }
 
     response_builder_t builder = {0};
     bool valid = false;

@@ -35,6 +35,12 @@ static gs232b_error_t execute_request(gs232b_control_t *control,
             return error;
         }
     }
+    if (request->access == GS232B_REQUEST_EXTENSION) {
+        if (control->executor.extension_execute == NULL) return GS232B_ERROR_NOT_FOUND;
+        const gs232b_error_t error = control->executor.extension_execute(control->executor.ctx, request, response);
+        if (error == GS232B_OK) request->response = response;
+        return error;
+    }
     if (request->access == GS232B_REQUEST_OWNER_TAKE) {
         return gs232b_control_take(control, request->context);
     }

@@ -104,6 +104,10 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
     }
     if (request->position != NULL) {
         request->access = GS232B_REQUEST_WRITE;
+    } else if (request->kind == GS232B_LINE_EXTENSION &&
+               control->executor.extension_validate != NULL) {
+        error = control->executor.extension_validate(control->executor.ctx, request);
+        request->access = GS232B_REQUEST_EXTENSION;
     } else {
         error = gs232b_control_classify(request->kind, request->line, &request->access);
     }
@@ -166,7 +170,8 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
             return gs232b_control_enqueue(control, request);
         }
     }
-    error = control->executor.validate(control->executor.ctx, request);
+    error = request->access == GS232B_REQUEST_EXTENSION ? GS232B_OK :
+        control->executor.validate(control->executor.ctx, request);
     if (error != GS232B_OK) {
         return error;
     }

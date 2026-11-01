@@ -74,6 +74,7 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     memset(dispatcher, 0, sizeof(*dispatcher));
+    gs232b_extension_registry_init(&dispatcher->extensions);
     dispatcher->motion = motion;
     dispatcher->store = store;
     dispatcher->io = io;
@@ -86,6 +87,8 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
     }
     const gs232b_control_executor_t executor = {
         .ctx = dispatcher, .validate = gs232b_gs_validate, .execute = gs232b_gs_execute,
+        .extension_validate = gs232b_extension_validate_request,
+        .extension_execute = gs232b_extension_execute_request,
         .cancel = cancel, .stop = stop, .tick = tick, .snapshot = activity,
         .position_context = position_context, .sequence_target = sequence_target,
         .fault = fault, .complete = gs232b_gs_complete,

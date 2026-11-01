@@ -20,6 +20,7 @@ typedef enum {
     GS232B_REQUEST_OWNER_GET,
     GS232B_REQUEST_OWNER_TAKE,
     GS232B_REQUEST_OWNER_RELEASE,
+    GS232B_REQUEST_EXTENSION,
     GS232B_REQUEST_STOP_AZ,
     GS232B_REQUEST_STOP_EL,
     GS232B_REQUEST_STOP_ALL
@@ -93,6 +94,11 @@ typedef struct {
     void (*submitted)(void *ctx, gs232b_control_request_t *request);
     /** @brief 可选：通知未执行请求已失效；可保留只读响应，禁止执行任何写副作用。 */
     void (*discarded)(void *ctx, const gs232b_control_request_t *request);
+    /** @brief 可选的扩展协议接纳校验；必须无副作用，成功后使用独立 EXTENSION 类别排队。 */
+    gs232b_error_t (*extension_validate)(void *ctx, const gs232b_control_request_t *request);
+    /** @brief 可选的扩展执行端；负责重查字段、权限及状态，不能自动获得 GS 运动所有权。 */
+    gs232b_error_t (*extension_execute)(void *ctx, const gs232b_control_request_t *request,
+                                        gs232b_response_t *response);
 } gs232b_control_executor_t;
 
 typedef struct {

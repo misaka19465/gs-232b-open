@@ -16,7 +16,9 @@ idf_component_register(
          "platform/esp_shared_spi.c" "platform/esp_w5500.c" "platform/esp_adc.c"
          "platform/esp_ledc.c" "platform/esp_uart.c" "platform/esp_uart_rx.c"
          "platform/esp_uart_capture.c" "platform/esp_uart_boot.c"
+         "platform/esp_ws.c" "platform/esp_ws_rx.c" "platform/esp_ws_tx.c"
     INCLUDE_DIRS "." "../include"
     REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_driver_uart esp_eth esp_timer esp_adc
              nvs_flash esp_wifi w5500 esp_driver_rmt esp_netif esp_event lwip esp_hw_support
+             esp_http_server
 )

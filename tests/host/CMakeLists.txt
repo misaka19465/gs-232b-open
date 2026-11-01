@@ -351,7 +351,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              calibration_tests calibration_lifecycle_tests
                              gs_commands_tests gs_sessions_tests gs_calibration_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
-                             esp_uart_capture_tests transport_fault_tests)
+                             esp_uart_capture_tests transport_fault_tests esp_ws_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -381,6 +381,16 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/gs_replies.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
+    if(motion_test STREQUAL "esp_ws_tests")
+        target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_watchdog_tests.c
+            ../../src/platform/esp_ws.c ../../src/platform/esp_ws_rx.c ../../src/platform/esp_ws_tx.c
+            ../fakes/esp_idf/ws_api.c ../fakes/esp_idf/ws_rtos.c)
+        target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf)
+        target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM
+            CONFIG_HTTPD_WS_SUPPORT=1 CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=1
+            CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT=1 CONFIG_HTTPD_QUEUE_WORK_BLOCKING=0
+            CONFIG_LWIP_IPV6=1)
+    endif()
     if(motion_test MATCHES "^esp_uart.*_tests$")
         target_sources(${motion_test} PRIVATE ../../src/platform/esp_uart.c
             ../../src/platform/esp_uart_rx.c ../../src/platform/esp_uart_boot.c

@@ -394,6 +394,8 @@ W5500 和 Wi-Fi STA 均独立拥有 netif、MAC、IP、DHCP 状态及重连状�
 
 使用 ESP-IDF `esp_http_server` 的 WebSocket 能力，开启对应配置；HTTP 仅用于 Upgrade 和管理接口，不提供网页，不启用 TLS/HTTPS。
 
+GS 传输适配、锁定 SDK 约束、任务边界和验收范围见 [WebSocket 适配说明](websocket-transport.md)。
+
 | 项目 | 本项目约定 |
 | --- | --- |
 | 控制入口 | `ws://<接口IPv4>/ws/gs232b`，TCP 80。以太网和 Wi-Fi 相同路径、相同协议。 |

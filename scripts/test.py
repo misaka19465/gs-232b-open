@@ -12,6 +12,7 @@ ENVIRONMENT = "esp32-c3-wroom-02u-n4"
 CAPTURE_ENVIRONMENT = "uart-capture-api-check"
 ETHERNET_ENVIRONMENT = "ethernet-api-check"
 WIFI_STA_ENVIRONMENT = "wifi-sta-api-check"
+WEBSOCKET_ENVIRONMENT = "websocket-api-check"
 
 
 def run(*command: str) -> None:
@@ -115,6 +116,40 @@ def check_wifi_sta_link() -> None:
     print("Verified ESP32-C3 / ESP-IDF 6.1.0 Wi-Fi STA + Ethernet API link", flush=True)
 
 
+def check_websocket_link() -> None:
+    """Verify locked HTTPD framing and handshake capabilities in the real target ELF."""
+    check_ethernet_link(WEBSOCKET_ENVIRONMENT)
+    build = ROOT / ".pio" / "build" / WEBSOCKET_ENVIRONMENT
+    settings = json.loads((build / "config/sdkconfig.json").read_text())
+    required_settings = (
+        "HTTPD_WS_SUPPORT", "HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT",
+        "HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT",
+    )
+    if not all(settings.get(key) is True for key in required_settings) or settings.get(
+        "HTTPD_QUEUE_WORK_BLOCKING"
+    ):
+        raise RuntimeError("WebSocket requires WS pre/post hooks and a nonblocking work queue")
+    description = json.loads((build / "project_description.json").read_text())
+    compiler = Path(description["c_compiler"])
+    nm = compiler.with_name(compiler.name.removesuffix("gcc") + "nm")
+    symbols = subprocess.check_output(
+        [str(nm), "--defined-only", str(build / "firmware.elf")], text=True
+    )
+    defined = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    required = {
+        "gs232b_esp_ws_open", "gs232b_esp_ws_io", "gs232b_esp_ws_interface",
+        "gs232b_esp_ws_service", "gs232b_esp_ws_close", "gs232b_ws_pre_handshake",
+        "gs232b_ws_post_handshake", "gs232b_ws_receive", "gs232b_ws_pump",
+        "httpd_start", "httpd_stop", "httpd_register_uri_handler", "httpd_queue_work",
+        "httpd_ws_recv_frame_part", "httpd_ws_send_frame_async",
+        "httpd_sess_set_send_override", "lwip_shutdown",
+        "gs232b_esp_wifi_sta_open", "gs232b_esp_ethernet_open",
+    }
+    if missing := required - defined:
+        raise RuntimeError(f"WebSocket API link check missing symbols: {sorted(missing)}")
+    print("Verified ESP32-C3 / ESP-IDF 6.1.0 WebSocket + STA + Ethernet API link", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -125,14 +160,17 @@ def main() -> int:
     try:
         if not args.host_only:
             run("pio", "run", "-e", ENVIRONMENT, "-e", CAPTURE_ENVIRONMENT,
-                "-e", ETHERNET_ENVIRONMENT, "-e", WIFI_STA_ENVIRONMENT)
+                "-e", ETHERNET_ENVIRONMENT, "-e", WIFI_STA_ENVIRONMENT,
+                "-e", WEBSOCKET_ENVIRONMENT)
             check_target_console(ENVIRONMENT)
             check_target_console(CAPTURE_ENVIRONMENT)
             check_target_console(ETHERNET_ENVIRONMENT)
             check_target_console(WIFI_STA_ENVIRONMENT)
+            check_target_console(WEBSOCKET_ENVIRONMENT)
             check_capture_link()
             check_ethernet_link()
             check_wifi_sta_link()
+            check_websocket_link()
         run("cmake", "-S", "tests/host", "-B", "build/host")
         run("cmake", "--build", "build/host")
         run("ctest", "--test-dir", "build/host", "--output-on-failure", "--no-tests=error")

@@ -9,7 +9,7 @@
 3. 字节进入任何上游缓冲前调用 `gs232b_dispatcher_capture`，将上下文与 RX 数据一起保存；分成最多 256 字节的小块调用 `gs232b_dispatcher_feed`，块间让出调度。周期调用 `gs232b_dispatcher_tick`，不可等待目标到位或阻塞收完整长行。
 4. 连接关闭、链路失效或 IO 故障时调用 `gs232b_dispatcher_session_close`。控制者关闭时同步全停、清任务并撤权。dispatcher 内部的 `control` 只用于只读快照，不绕过门面修改其状态。
 
-`io.send` 必须按完整会话键校验目标，将整个字节范围原子复制到有界 FIFO，不自动补行尾、记录日志或广播。发送失败会在本次 feed/tick 返回前关闭该会话；控制者失败同时全停。实际 UART/WebSocket、自动波特率与板级驱动仍由平台适配器接入；`app_main` 目前仍为构建基线。
+`io.send` 必须按完整会话键校验目标，将整个字节范围原子复制到有界 FIFO，不自动补行尾、记录日志或广播。发送失败会在本次 feed/tick 返回前关闭该会话；控制者失败同时全停。平台入口见 [UART 适配](uart-transport.md)与 [WebSocket 适配](websocket-transport.md)；`app_main` 目前仍为构建基线。
 
 ## 命令路由与持久化
 

@@ -31,6 +31,9 @@ typedef struct {
     gs232b_azimuth_display_settings_t display;
     uint64_t display_revision;
     gs232b_dispatcher_session_t sessions[GS232B_CONTROL_MAX_SESSIONS];
+    gs232b_session_key_t watchdog_session;
+    gs232b_time_us_t watchdog_timeout_us;
+    gs232b_time_us_t watchdog_renewed_us;
     bool initialized;
 } gs232b_dispatcher_t;
 
@@ -77,5 +80,17 @@ gs232b_error_t gs232b_dispatcher_resync_input(gs232b_dispatcher_t *dispatcher,
     gs232b_session_key_t session);
 /** @brief 优先停止、推进运动/序列/校准和一条普通请求，按会话顺序发送响应。 */
 gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher);
+
+/**
+ * @brief 当前控制者自愿设置应用看门狗，0 关闭，其他值为 1000..600000 毫秒。
+ * @note 默认关闭；此控制任务 API 不新增 GS 扩展语法。仅该控制者成功完成的
+ *       完整命令或显式 watchdog_ping 续期；WS 控制帧及周期显示不续期。
+ *       tick 在执行普通命令前检查期限，超时关闭该会话并执行所有者失联清理。
+ */
+gs232b_error_t gs232b_dispatcher_watchdog_set(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session, uint32_t timeout_ms);
+/** @brief 应用心跳续期入口，仅当前控制者可调用；不得由 WS Ping/Pong 调用。 */
+gs232b_error_t gs232b_dispatcher_watchdog_ping(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session);
 
 #endif

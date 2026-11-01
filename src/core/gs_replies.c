@@ -39,6 +39,16 @@ static gs232b_dispatcher_reply_t *find_reply(gs232b_dispatcher_session_t *slot, 
     return NULL;
 }
 
+static void renew_watchdog(gs232b_dispatcher_t *dispatcher,
+                            gs232b_session_key_t session, gs232b_error_t result)
+{
+    if (result == GS232B_OK && dispatcher->watchdog_timeout_us != 0 &&
+        gs232b_session_key_equal(dispatcher->watchdog_session, session) &&
+        gs232b_session_key_equal(dispatcher->control.owner, session)) {
+        dispatcher->watchdog_renewed_us = dispatcher->control.clock.now_us(dispatcher->control.clock.ctx);
+    }
+}
+
 void gs232b_gs_submitted(void *ctx, gs232b_control_request_t *request)
 {
     gs232b_dispatcher_session_t *slot = session_slot(ctx, request->context.session);
@@ -72,6 +82,7 @@ void gs232b_gs_complete(void *ctx, const gs232b_control_request_t *request,
                 --count;
             }
         }
+        renew_watchdog(dispatcher, request->context.session, result);
         return;
     }
     gs232b_dispatcher_reply_t *reply = find_reply(slot, request->reply_id);
@@ -87,6 +98,7 @@ void gs232b_gs_complete(void *ctx, const gs232b_control_request_t *request,
     if (result != GS232B_OK) {
         reply->response.kind = GS232B_RESPONSE_ERROR;
     }
+    renew_watchdog(dispatcher, request->context.session, result);
     reply->state = GS_REPLY_READY;
 }
 

@@ -135,6 +135,11 @@ gs232b_error_t gs232b_dispatcher_session_close(gs232b_dispatcher_t *dispatcher,
     const gs232b_error_t control_error = gs232b_control_session_close(&dispatcher->control, session);
     const gs232b_error_t io_error = gs232b_session_close(&dispatcher->io, session);
     *slot = (gs232b_dispatcher_session_t){0};
+    if (gs232b_session_key_equal(dispatcher->watchdog_session, session)) {
+        dispatcher->watchdog_session = (gs232b_session_key_t){0};
+        dispatcher->watchdog_timeout_us = 0;
+        dispatcher->watchdog_renewed_us = 0;
+    }
     /* NOTE: 异步校准发送失败可能已关闭核心会话，仍须清理实际连接。 */
     return control_error != GS232B_OK && control_error != GS232B_ERROR_STALE_SESSION ?
         control_error : io_error;
@@ -181,7 +186,57 @@ gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher)
     if (dispatcher == NULL || !dispatcher->initialized) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
+    if (dispatcher->watchdog_timeout_us != 0) {
+        if (!gs232b_session_key_equal(dispatcher->watchdog_session, dispatcher->control.owner)) {
+            dispatcher->watchdog_timeout_us = 0;
+        } else {
+            const gs232b_time_us_t now = dispatcher->control.clock.now_us(dispatcher->control.clock.ctx);
+            if (now < dispatcher->watchdog_renewed_us ||
+                now - dispatcher->watchdog_renewed_us >= dispatcher->watchdog_timeout_us) {
+                dispatcher->watchdog_timeout_us = 0;
+                const gs232b_error_t error = gs232b_dispatcher_session_close(dispatcher,
+                    dispatcher->watchdog_session);
+                return error == GS232B_OK ? GS232B_ERROR_TIMEOUT : error;
+            }
+        }
+    }
     const gs232b_error_t error = gs232b_control_tick(&dispatcher->control);
     const gs232b_error_t send_error = gs232b_gs_flush(dispatcher);
     return error != GS232B_OK ? error : send_error;
+}
+
+gs232b_error_t gs232b_dispatcher_watchdog_ping(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session)
+{
+    if (dispatcher == NULL || !dispatcher->initialized) { return GS232B_ERROR_INVALID_ARGUMENT; }
+    gs232b_command_context_t context;
+    const gs232b_error_t error = gs232b_dispatcher_capture(dispatcher, session, &context);
+    if (error != GS232B_OK) { return error; }
+    if (!gs232b_session_key_equal(session, dispatcher->control.owner)) {
+        return GS232B_ERROR_NOT_OWNER;
+    }
+    const gs232b_time_us_t now = dispatcher->control.clock.now_us(dispatcher->control.clock.ctx);
+    if (dispatcher->watchdog_timeout_us != 0 &&
+        gs232b_session_key_equal(dispatcher->watchdog_session, session) &&
+        (now < dispatcher->watchdog_renewed_us ||
+         now - dispatcher->watchdog_renewed_us >= dispatcher->watchdog_timeout_us)) {
+        const gs232b_error_t closed = gs232b_dispatcher_session_close(dispatcher, session);
+        return closed == GS232B_OK ? GS232B_ERROR_TIMEOUT : closed;
+    }
+    dispatcher->watchdog_renewed_us = now;
+    return GS232B_OK;
+}
+
+gs232b_error_t gs232b_dispatcher_watchdog_set(gs232b_dispatcher_t *dispatcher,
+    gs232b_session_key_t session, uint32_t timeout_ms)
+{
+    if (timeout_ms != 0 && (timeout_ms < 1000 || timeout_ms > 600000)) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    const gs232b_error_t error = gs232b_dispatcher_watchdog_ping(dispatcher, session);
+    if (error == GS232B_OK) {
+        dispatcher->watchdog_session = session;
+        dispatcher->watchdog_timeout_us = (gs232b_time_us_t)timeout_ms * 1000U;
+    }
+    return error;
 }

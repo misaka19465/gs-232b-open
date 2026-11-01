@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT = "esp32-c3-wroom-02u-n4"
 CAPTURE_ENVIRONMENT = "uart-capture-api-check"
 ETHERNET_ENVIRONMENT = "ethernet-api-check"
+WIFI_STA_ENVIRONMENT = "wifi-sta-api-check"
 
 
 def run(*command: str) -> None:
@@ -58,9 +59,9 @@ def check_capture_link() -> None:
     print("Verified ESP32-C3 / ESP-IDF 6.1.0 UART1 RX capture API link", flush=True)
 
 
-def check_ethernet_link() -> None:
+def check_ethernet_link(environment: str = ETHERNET_ENVIRONMENT) -> None:
     """Verify real W5500, esp-netif and lwIP survive the empty app's linker GC."""
-    build = ROOT / ".pio" / "build" / ETHERNET_ENVIRONMENT
+    build = ROOT / ".pio" / "build" / environment
     description = json.loads((build / "project_description.json").read_text())
     if description["target"] != "esp32c3" or description["git_revision"] != "6.1.0":
         raise RuntimeError("Revalidate Ethernet events for a different target or ESP-IDF version")
@@ -89,6 +90,31 @@ def check_ethernet_link() -> None:
     print("Verified ESP32-C3 / ESP-IDF 6.1.0 W5500 + esp-netif + lwIP API link", flush=True)
 
 
+def check_wifi_sta_link() -> None:
+    """Require real STA and Ethernet paths together in the locked target ELF."""
+    check_ethernet_link(WIFI_STA_ENVIRONMENT)
+    build = ROOT / ".pio" / "build" / WIFI_STA_ENVIRONMENT
+    description = json.loads((build / "project_description.json").read_text())
+    compiler = Path(description["c_compiler"])
+    nm = compiler.with_name(compiler.name.removesuffix("gcc") + "nm")
+    symbols = subprocess.check_output(
+        [str(nm), "--defined-only", str(build / "firmware.elf")], text=True
+    )
+    defined = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    required = {
+        "gs232b_esp_wifi_sta_open", "gs232b_esp_wifi_sta_configure",
+        "gs232b_esp_wifi_sta_set_enabled", "gs232b_esp_wifi_sta_service",
+        "gs232b_esp_wifi_sta_snapshot", "gs232b_esp_wifi_sta_close",
+        "esp_wifi_init", "esp_wifi_deinit", "esp_wifi_set_storage", "esp_wifi_set_mode",
+        "esp_wifi_set_config", "esp_wifi_get_mac", "esp_wifi_start", "esp_wifi_connect",
+        "esp_wifi_stop", "esp_netif_attach_wifi_station", "esp_wifi_set_default_wifi_sta_handlers",
+        "esp_wifi_clear_default_wifi_driver_and_handlers", "netif_add", "dhcp_start",
+    }
+    if missing := required - defined:
+        raise RuntimeError(f"Wi-Fi STA API link check missing symbols: {sorted(missing)}")
+    print("Verified ESP32-C3 / ESP-IDF 6.1.0 Wi-Fi STA + Ethernet API link", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -99,12 +125,14 @@ def main() -> int:
     try:
         if not args.host_only:
             run("pio", "run", "-e", ENVIRONMENT, "-e", CAPTURE_ENVIRONMENT,
-                "-e", ETHERNET_ENVIRONMENT)
+                "-e", ETHERNET_ENVIRONMENT, "-e", WIFI_STA_ENVIRONMENT)
             check_target_console(ENVIRONMENT)
             check_target_console(CAPTURE_ENVIRONMENT)
             check_target_console(ETHERNET_ENVIRONMENT)
+            check_target_console(WIFI_STA_ENVIRONMENT)
             check_capture_link()
             check_ethernet_link()
+            check_wifi_sta_link()
         run("cmake", "-S", "tests/host", "-B", "build/host")
         run("cmake", "--build", "build/host")
         run("ctest", "--test-dir", "build/host", "--output-on-failure", "--no-tests=error")

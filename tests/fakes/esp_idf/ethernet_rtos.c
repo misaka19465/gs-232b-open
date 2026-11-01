@@ -142,7 +142,8 @@ static void *task_main(void *ctx)
 BaseType_t xTaskCreate(TaskFunction_t entry, const char *name, uint32_t stack_size,
     void *ctx, UBaseType_t priority, TaskHandle_t *task)
 {
-    assert(strcmp(name, "gs_eth") == 0 && stack_size >= 4096 && priority == 3);
+    assert((strcmp(name, "gs_eth") == 0 || strcmp(name, "gs_sta") == 0) &&
+           stack_size >= 4096 && priority == 3);
     if (fake_eth_status().fail_task) { return pdFAIL; }
     *task = malloc(sizeof(**task));
     assert(*task != NULL);

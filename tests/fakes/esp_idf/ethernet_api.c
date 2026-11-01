@@ -1,6 +1,8 @@
 #include "ethernet_api.h"
 #include "gs232b/esp_w5500.h"
 #include "esp_mac.h"
+#include "esp_wifi.h"
+#include "netif_fake.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -11,14 +13,8 @@
 
 ESP_EVENT_DEFINE_BASE(ETH_EVENT);
 ESP_EVENT_DEFINE_BASE(IP_EVENT);
+ESP_EVENT_DEFINE_BASE(WIFI_EVENT);
 
-struct fake_netif {
-    esp_netif_ip_info_t ip;
-    esp_netif_dns_info_t dns[2];
-    esp_netif_dhcp_status_t dhcp;
-    unsigned flags;
-    bool up;
-};
 struct fake_eth_driver { bool started; unsigned references; gs232b_shared_spi_t *bus; };
 struct fake_eth_glue {
     esp_eth_handle_t driver;
@@ -196,14 +192,14 @@ esp_err_t esp_event_post(esp_event_base_t base, int32_t id, const void *data,
 {
     (void)timeout;
     assert(size <= sizeof(((event_t *)0)->data));
-    if (base != ETH_EVENT && base != IP_EVENT) {
+    if (base != ETH_EVENT && base != IP_EVENT && base != WIFI_EVENT) {
         esp_err_t error = call(ETH_FAKE_FENCE);
         if (error != ESP_OK) { return error; }
     }
     event_t *event = calloc(1, sizeof(*event));
     assert(event != NULL);
     event->base = base; event->id = id;
-    memcpy(event->data, data, size);
+    if (size != 0) { memcpy(event->data, data, size); }
     assert(pthread_mutex_lock(&events_lock) == 0);
     if (events_tail != NULL) { events_tail->next = event; }
     else { events_head = event; }
@@ -333,11 +329,15 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *config)
 {
     if (call(ETH_FAKE_NETIF) != ESP_OK) { return NULL; }
     esp_netif_t *netif = calloc(1, sizeof(*netif));
-    assert(netif != NULL && config->stack == ESP_NETIF_NETSTACK_DEFAULT_ETH);
+    assert(netif != NULL && (config->stack == ESP_NETIF_NETSTACK_DEFAULT_ETH ||
+        config->stack == ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA));
     netif->flags = config->base->flags;
     assert(pthread_mutex_lock(&lock) == 0);
-    assert(status.live_netifs == 0);
-    status.route_prio = config->base->route_prio;
+    if (config->stack == ESP_NETIF_NETSTACK_DEFAULT_ETH) {
+        status.route_prio = config->base->route_prio;
+    } else {
+        assert(config->base->route_prio == 100 && strcmp(config->base->if_key, "GS232B_STA") == 0);
+    }
     ++status.live_netifs;
     assert(pthread_mutex_unlock(&lock) == 0);
     return netif;

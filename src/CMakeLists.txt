@@ -8,6 +8,8 @@ idf_component_register(
          "core/command_sequence.c" "core/command_calibration.c"
          "core/uart_baud.c" "core/uart_baud_store.c"
          "core/ethernet.c" "platform/esp_ethernet.c"
+         "core/wifi_sta.c" "platform/esp_wifi_sta.c"
+         "platform/esp_wifi_sta_driver.c" "platform/esp_wifi_sta_events.c"
          "platform/esp_ethernet_driver.c" "platform/esp_ethernet_events.c"
          "core/gs_dispatcher.c" "core/gs_commands.c" "core/gs_replies.c"
          "platform/shared_spi.c" "platform/w5500_reset.c"
@@ -16,5 +18,5 @@ idf_component_register(
          "platform/esp_uart_capture.c" "platform/esp_uart_boot.c"
     INCLUDE_DIRS "." "../include"
     REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_driver_uart esp_eth esp_timer esp_adc
-             nvs_flash w5500 esp_driver_rmt esp_netif esp_event lwip esp_hw_support
+             nvs_flash esp_wifi w5500 esp_driver_rmt esp_netif esp_event lwip esp_hw_support
 )

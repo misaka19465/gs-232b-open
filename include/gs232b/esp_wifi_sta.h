@@ -1,0 +1,53 @@
+#ifndef GS232B_ESP_WIFI_STA_H
+#define GS232B_ESP_WIFI_STA_H
+
+#include "gs232b/wifi_sta.h"
+
+#ifdef ESP_PLATFORM
+#include <stdatomic.h>
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+/* NOTE: 私有布局供静态分配，不复制活动对象；所有公开 API 由同一管理任务串行调用。
+ * 工作任务独占 SDK 生命周期，事件回调与快照用 lock 保护状态；不依赖 Ethernet。 */
+typedef struct {
+    gs232b_wifi_sta_config_t configured;
+    gs232b_wifi_sta_snapshot_t state;
+    gs232b_time_us_t waiting_since_us;
+    SemaphoreHandle_t lock, fence, stopped;
+    QueueHandle_t requests, results;
+    TaskHandle_t worker;
+    esp_netif_t *netif;
+    esp_event_handler_instance_t wifi_handler, ip_handler, fence_handler;
+    uint64_t fence_serial;
+    unsigned job, closing;
+    bool initialized, start_attempted, defaults_attached, accepting_events, opened;
+    atomic_bool cancelled;
+} gs232b_esp_wifi_sta_t;
+
+/**
+ * @brief 建立异步 STA 服务；NULL config 禁用且无凭据。成功后持续调用 service。
+ * @param adapter 清零的独占实例，寿命覆盖 close 完成。
+ * @note 独占 Wi-Fi 驱动；不与其他 Wi-Fi/SoftAP 管理器共用，不创建 AP。
+ *       复用全局 netif/事件循环，close 不删除它们；凭据仅应用到 RAM，不读写 NVS。
+ */
+gs232b_error_t gs232b_esp_wifi_sta_open(gs232b_esp_wifi_sta_t *adapter,
+                                      const gs232b_wifi_sta_config_t *config);
+/** @brief 接纳完整新配置；异步停用并排空旧代次，忙时返回 BUSY；不持久化或清除凭据。 */
+gs232b_error_t gs232b_esp_wifi_sta_configure(gs232b_esp_wifi_sta_t *adapter,
+                                           const gs232b_wifi_sta_config_t *config);
+/** @brief 保留 SSID/密码，仅切换启用状态；无凭据时不可启用。 */
+gs232b_error_t gs232b_esp_wifi_sta_set_enabled(gs232b_esp_wifi_sta_t *adapter, bool enabled);
+/** @brief 非阻塞消费工作结果、推进连接/DHCP 超时与有界退避；SDK 操作在工作任务执行。 */
+gs232b_error_t gs232b_esp_wifi_sta_service(gs232b_esp_wifi_sta_t *adapter);
+/** @brief 零等待复制脱敏运行状态；竞争时返回 WOULD_BLOCK 并清零输出，不含密码。 */
+gs232b_error_t gs232b_esp_wifi_sta_snapshot(gs232b_esp_wifi_sta_t *adapter,
+                                          gs232b_wifi_sta_snapshot_t *snapshot);
+/** @brief 异步释放本 STA；WOULD_BLOCK 时继续调用，失败保留资源可重试，成功后才可释放实例。 */
+gs232b_error_t gs232b_esp_wifi_sta_close(gs232b_esp_wifi_sta_t *adapter);
+#endif
+#endif

@@ -112,6 +112,22 @@ int fake_ws_getsockname(int fd, struct sockaddr *address, socklen_t *length)
     *length = sizeof(*local);
     return 0;
 }
+int fake_ws_socket_setsockopt(int fd, int level, int option, const void *value, socklen_t length)
+{
+    assert(fd >= 0 && fd < (int)FAKE_WS_SOCKETS);
+    fake_ws_socket_t *socket = &fake_ws.sockets[fd];
+    if (socket->bind_error) { errno = ENODEV; return -1; }
+    if (level != SOL_SOCKET || option != SO_BINDTODEVICE || length != sizeof(struct ifreq)) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct ifreq *binding = value;
+    if (binding->ifr_name[0] == '\0') { errno = EINVAL; return -1; }
+    memcpy(socket->bound_interface, binding->ifr_name, sizeof(socket->bound_interface));
+    ++socket->bind_calls;
+    if (fake_ws.bind_step != NULL) { fake_ws.bind_step(fake_ws.bind_ctx); }
+    return 0;
+}
 ssize_t fake_ws_socket_send(int fd, const void *bytes, size_t size, int flags)
 {
     fake_ws_socket_t *socket = &fake_ws.sockets[fd];

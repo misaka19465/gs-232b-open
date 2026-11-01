@@ -214,7 +214,7 @@ static bool test_modes_and_stable_mac(void)
     CHECK(gs232b_esp_ethernet_recover(&f.eth) == GS232B_OK && settle(&f, true));
     CHECK(fake_eth_dhcp(&f.eth) == ESP_NETIF_DHCP_STOPPED);
     CHECK(fake_eth_status().calls[ETH_FAKE_DHCP_START] == 0);
-    CHECK(fake_eth_status().route_prio == 150);
+    CHECK(fake_eth_status().route_prio == GS232B_ESP_ETHERNET_ROUTE_PRIORITY);
     gs232b_ethernet_snapshot_t s;
     CHECK(snapshot(&f, &s) && !s.ipv4_valid && !s.dhcp_running);
     fake_eth_link(&f.eth, true);

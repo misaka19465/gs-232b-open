@@ -156,7 +156,7 @@ gs232b_error_t gs232b_eth_driver_resume(gs232b_esp_ethernet_t *adapter)
     if (error != ESP_OK) { result = gs232b_eth_error(error); goto fail; }
     esp_netif_inherent_config_t base = ESP_NETIF_INHERENT_DEFAULT_ETH();
     base.if_key = "GS232B_ETH";
-    base.route_prio = 150;
+    base.route_prio = GS232B_ESP_ETHERNET_ROUTE_PRIORITY;
     if (config.mode == GS232B_ETHERNET_STATIC) { base.flags &= ~ESP_NETIF_DHCP_CLIENT; }
     const esp_netif_config_t netif = {
         .base = &base, .stack = ESP_NETIF_NETSTACK_DEFAULT_ETH

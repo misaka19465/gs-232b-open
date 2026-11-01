@@ -9,8 +9,9 @@ ETH 和 STA 合计最多四个控制连接。`app_main` 仍是构建基线，板
 1. 静态分配、清零 `gs232b_esp_ws_t`，先取得 `gs232b_esp_ws_io`，用于初始化唯一 dispatcher。
    与 UART 共存时由应用的 `io` 路由按完整会话键分派；不得按 fd 或 transport 广播。
 2. 用 `gs232b_esp_ws_open` 启动 HTTPD。控制任务通过 `gs232b_esp_ws_interface`
-   发布 ETH/STA 的当前 IPv4（主机序）和对应生命周期快照的非零 `session_epoch`。
-   不可用时发布地址 0；地址或 epoch 变化仅撤销该接口的旧连接。
+   发布 ETH/STA 的当前 IPv4（主机序）、`esp_netif_get_netif_impl_name` 得到的 lwIP
+   接口名和对应生命周期快照的非零 `session_epoch`。不可用时发布地址 0 和 NULL 名称；
+   地址、epoch 或接口名变化仅撤销该接口的旧连接。
 3. 同一控制任务持续运行 `gs232b_esp_ws_service` 和 `gs232b_dispatcher_tick`。
    service 先关闭失效会话，再轮转至多一个 256 字节 RX 包，且至多保留一个 HTTPD pump。
    控制任务所有锁和 work queue 均零等待，输入包在 HTTPD 入队前盖完整会话键和 epoch。
@@ -20,7 +21,15 @@ ETH 和 STA 合计最多四个控制连接。`app_main` 仍是构建基线，板
 HTTPD 回调只接收、排队、编码和发送，不运行 dispatcher、运动或持久化操作。
 pre-handshake 检查本地 socket 地址；锁定 SDK 默认 IPv6 dual-stack listener 时只接受
 能映射到已发布 IPv4 的 `::ffff:a.b.c.d` 目标，未发布的地址（包括管理 SoftAP）拒绝接入。
-同一个 IPv4 同时发布给两个接口时拒绝新连接，避免错误归属；不同地址的同子网部署仍需硬件验证出口。
+同一个 IPv4 同时发布给两个接口时拒绝新连接，避免错误归属。识别出接口后，在返回 Upgrade
+响应前对已接受 socket 设置 `SO_BINDTODEVICE`，使用 `esp_netif_get_netif_impl_name` 提供的
+lwIP 接口名固定该 TCP 会话的后续出口；名称不合法或绑定失败时拒绝握手。记录同时保存入站
+transport、当时的本机 IPv4 和 lifecycle epoch，后续变更只关闭对应接口的会话。
+
+ETH netif 路由优先级为 150，STA 为 100，因此两者都可用时 ETH 是默认路由；ETH 不可用时
+lwIP 可回退到 STA。优先级影响默认路由选择，不会迁移既有 TCP 连接；已建立的 WebSocket
+通过 socket 绑定保持原接口。双网同网段时的真实回包出口、ARP 选择及 `SO_BINDTODEVICE`
+在目标板上的实际效果仍列为板级网络验证项。
 
 锁定 SDK 在 Upgrade 后**不调用普通 GET handler**。必须开启
 `CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT` 和 `CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT`：
@@ -72,5 +81,7 @@ tick 在执行普通请求前检查到期；迟到的应用心跳也不能复活
 `esp_ws_tests` 用带掩码的 RFC wire 帧和 SDK 行为替身，接入真实 dispatcher/运动/序列核心，覆盖：
 跨消息和多命令、分片穿插非空/空 Ping、Pong 隔离、零长帧、非法分片、16KiB 正反边界与累计长度、
 15205 字节最大序列、GS 行超长恢复、1 字节短写、EAGAIN、EPIPE、TX/RX 边界、HTTPD 调度延迟、
-四连接上限、接口局部失效、重连 generation/epoch 隔离、握手/分配/SDK 失败清理及应用看门狗。
+四连接上限、socket 接口绑定、ETH/STA 同时在线、地址变化、ETH 失效/恢复导致的默认路由切换、
+接口局部失效、重连 generation/epoch 隔离、非控制会话断开保留活动控制者、握手/分配/SDK 失败
+清理及应用看门狗。
 这些是确定性的主机行为测试及真实 SDK 编译链接验证，不代表已完成硬件网络、堆余量或双网同子网出口实测。

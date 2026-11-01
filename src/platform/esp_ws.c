@@ -118,20 +118,30 @@ gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t 
 }
 
 gs232b_error_t gs232b_esp_ws_interface(gs232b_esp_ws_t *adapter,
-    gs232b_transport_t transport, uint32_t address, uint64_t epoch)
+    gs232b_transport_t transport, uint32_t address, uint64_t epoch, const char *if_name)
 {
     if (adapter == NULL || epoch == 0 ||
         (transport != GS232B_TRANSPORT_ETHERNET_WS && transport != GS232B_TRANSPORT_WIFI_WS)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
+    gs232b_ws_interface_t next = {.address = address, .epoch = epoch};
+    if (address != 0) {
+        if (if_name == NULL) { return GS232B_ERROR_INVALID_ARGUMENT; }
+        size_t length = 0;
+        while (length < sizeof(next.if_name) && if_name[length] != '\0') { ++length; }
+        if (length == 0 || length == sizeof(next.if_name)) {
+            return GS232B_ERROR_INVALID_ARGUMENT;
+        }
+        memcpy(next.if_name, if_name, length + 1U);
+    }
     if (!adapter->opened) { return GS232B_ERROR_NOT_READY; }
     if (xSemaphoreTake(adapter->lock, 0) != pdPASS) { return GS232B_ERROR_WOULD_BLOCK; }
-    adapter->interfaces[transport - GS232B_TRANSPORT_ETHERNET_WS] =
-        (gs232b_ws_interface_t){address, epoch};
+    adapter->interfaces[transport - GS232B_TRANSPORT_ETHERNET_WS] = next;
     for (size_t i = 0; i < GS232B_WS_CLIENTS; ++i) {
         gs232b_ws_client_t *client = &adapter->clients[i];
         if (atomic_load(&client->occupied) && client->transport == transport &&
-            (client->interface.address != address || client->interface.epoch != epoch)) {
+            (client->interface.address != address || client->interface.epoch != epoch ||
+             strcmp(client->interface.if_name, next.if_name) != 0)) {
             atomic_store(&client->close_requested, true);
         }
     }

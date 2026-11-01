@@ -31,7 +31,9 @@ bool wifi_test_coexistence(void)
     wifi_ready(&f);
     CHECK(f.sta.netif != eth.netif && fake_eth_status().live_netifs == 2);
     gs232b_wifi_sta_snapshot_t sta; CHECK(wifi_snapshot(&f, &sta));
-    CHECK(memcmp(sta.mac, before.mac, 6) != 0 && fake_eth_status().route_prio == 150);
+    CHECK(memcmp(sta.mac, before.mac, 6) != 0 &&
+        fake_eth_status().route_prio == GS232B_ESP_ETHERNET_ROUTE_PRIORITY &&
+        GS232B_ESP_ETHERNET_ROUTE_PRIORITY > GS232B_ESP_WIFI_STA_ROUTE_PRIORITY);
     const unsigned stops = fake_eth_status().calls[ETH_FAKE_STOP];
     esp_netif_t *const eth_netif = eth.netif;
     for (unsigned i = 0; i < 3; ++i) {
@@ -48,13 +50,27 @@ bool wifi_test_coexistence(void)
         CHECK(gs232b_esp_wifi_sta_set_enabled(&f.sta, true) == GS232B_OK);
         CHECK(wifi_settle(&f)); wifi_ready(&f);
     }
+    CHECK(wifi_snapshot(&f, &sta) && sta.state == GS232B_WIFI_STA_READY);
+    const uint64_t sta_epoch = sta.session_epoch;
+    fake_eth_link(&eth, false);
+    CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
+    CHECK(after.state == GS232B_ETHERNET_LINK_DOWN && !after.ipv4_valid);
+    CHECK(wifi_snapshot(&f, &sta) && sta.state == GS232B_WIFI_STA_READY &&
+        sta.session_epoch == sta_epoch);
+    fake_eth_link(&eth, true);
+    fake_eth_lease(&eth, eth_ip);
+    CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
+    CHECK(after.state == GS232B_ETHERNET_READY && after.current.address == eth_ip.address);
+    const uint64_t eth_epoch_after_failover = after.session_epoch;
+    CHECK(wifi_snapshot(&f, &sta) && sta.state == GS232B_WIFI_STA_READY &&
+        sta.session_epoch == sta_epoch);
     CHECK(gs232b_esp_wifi_sta_set_enabled(&f.sta, false) == GS232B_OK);
     CHECK(wifi_settle(&f));
     /* NOTE: STA 关闭后仍使用同一个 Ethernet netif 和默认事件循环更新租约。 */
     CHECK(wifi_close_result(&f) == GS232B_OK);
     fake_eth_lease(&eth, eth_ip);
     CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
-    CHECK(after.state == GS232B_ETHERNET_READY && after.session_epoch == before.session_epoch);
+    CHECK(after.state == GS232B_ETHERNET_READY && after.session_epoch == eth_epoch_after_failover);
     CHECK(eth.netif == eth_netif && fake_eth_status().calls[ETH_FAKE_STOP] == stops);
     deadline = wifi_wall_ms() + 3000;
     gs232b_error_t result = GS232B_ERROR_WOULD_BLOCK;

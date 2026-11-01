@@ -6,6 +6,8 @@
 
 #include <stdatomic.h>
 
+#define GS232B_ESP_ETHERNET_ROUTE_PRIORITY 150
+
 #ifdef ESP_PLATFORM
 #include "esp_eth.h"
 #include "esp_eth_netif_glue.h"

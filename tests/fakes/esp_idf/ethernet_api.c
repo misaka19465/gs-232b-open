@@ -1,4 +1,5 @@
 #include "ethernet_api.h"
+#include "gs232b/esp_wifi_sta.h"
 #include "gs232b/esp_w5500.h"
 #include "esp_mac.h"
 #include "esp_wifi.h"
@@ -336,7 +337,8 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *config)
     if (config->stack == ESP_NETIF_NETSTACK_DEFAULT_ETH) {
         status.route_prio = config->base->route_prio;
     } else {
-        assert(config->base->route_prio == 100 && strcmp(config->base->if_key, "GS232B_STA") == 0);
+        assert(config->base->route_prio == GS232B_ESP_WIFI_STA_ROUTE_PRIORITY &&
+            strcmp(config->base->if_key, "GS232B_STA") == 0);
     }
     ++status.live_netifs;
     assert(pthread_mutex_unlock(&lock) == 0);

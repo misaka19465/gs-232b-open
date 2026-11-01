@@ -70,12 +70,13 @@ static bool admission_interfaces_and_resource_cleanup(void)
     for (int fd = 0; fd < 4; ++fd) { CHECK(ws_connect(&f, fd, fd % 2 == 0 ? WS_ETH_IP : WS_STA_IP)); }
     CHECK(fake_ws_connect(4, WS_ETH_IP) == ESP_FAIL);
     CHECK(ws_command(&f, 0, "R\r", "\r"));
-    CHECK(gs232b_esp_ws_interface(&f.ws, GS232B_TRANSPORT_WIFI_WS, 0, 2) == GS232B_OK);
+    CHECK(gs232b_esp_ws_interface(&f.ws, GS232B_TRANSPORT_WIFI_WS, 0, 2, NULL) == GS232B_OK);
     CHECK(ws_poll(&f, 2));
     CHECK(fake_ws.sockets[0].active && fake_ws.sockets[2].active);
     CHECK(!fake_ws.sockets[1].active && !fake_ws.sockets[3].active);
     CHECK(gs232b_session_key_valid(f.dispatcher.control.owner));
-    CHECK(gs232b_esp_ws_interface(&f.ws, GS232B_TRANSPORT_ETHERNET_WS, WS_ETH_IP, 2) == GS232B_OK);
+    CHECK(gs232b_esp_ws_interface(&f.ws, GS232B_TRANSPORT_ETHERNET_WS,
+        WS_ETH_IP, 2, WS_ETH_IF_NAME) == GS232B_OK);
     CHECK(ws_poll(&f, 2));
     CHECK(stopped(&f.sim));
     CHECK(ws_close(&f));
@@ -165,6 +166,11 @@ static bool handshake_and_sdk_failures_release_resources(void)
 {
     ws_fixture_t f;
     CHECK(ws_init(&f));
+    fake_ws.sockets[0].bind_error = true;
+    CHECK(fake_ws_connect(0, WS_ETH_IP) == ESP_FAIL);
+    CHECK(ws_client(&f, 0) == NULL && fake_ws.sockets[0].bind_calls == 0);
+    CHECK(ws_poll(&f, 1));
+    fake_ws.sockets[0].bind_error = false;
     fake_ws.control_step = NULL;
     CHECK(fake_ws_connect(0, WS_ETH_IP) == ESP_FAIL);
     CHECK(ws_poll(&f, 1));

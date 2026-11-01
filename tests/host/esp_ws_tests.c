@@ -3,6 +3,7 @@
 
 bool ws_boundary_tests(void);
 bool ws_fault_tests(void);
+bool ws_network_tests(void);
 bool ws_watchdog_tests(void);
 
 static bool cross_message_and_multiple_commands(void)
@@ -98,7 +99,8 @@ static bool dual_stack_ipv4_mapped_admission(void)
     fake_ws.sockets[2].address_family = AF_INET6;
     fake_ws.sockets[2].native_ipv6 = true;
     CHECK(fake_ws_connect(2, WS_ETH_IP) == ESP_FAIL);
-    CHECK(gs232b_esp_ws_interface(&f.ws, GS232B_TRANSPORT_WIFI_WS, WS_ETH_IP, 2) == GS232B_OK);
+    CHECK(gs232b_esp_ws_interface(&f.ws, GS232B_TRANSPORT_WIFI_WS,
+        WS_ETH_IP, 2, WS_STA_IF_NAME) == GS232B_OK);
     CHECK(fake_ws_connect(2, WS_ETH_IP) == ESP_FAIL);
     CHECK(ws_poll(&f, 2));
     CHECK(fake_ws.sockets[0].active && !fake_ws.sockets[1].active);
@@ -109,6 +111,6 @@ int main(void)
 {
     return cross_message_and_multiple_commands() && fragmented_with_control_frames() &&
         zero_frames_and_invalid_fragments() && dual_stack_ipv4_mapped_admission() &&
-        ws_boundary_tests() && ws_fault_tests() &&
+        ws_boundary_tests() && ws_fault_tests() && ws_network_tests() &&
         ws_watchdog_tests() ? EXIT_SUCCESS : EXIT_FAILURE;
 }

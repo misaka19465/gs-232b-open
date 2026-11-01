@@ -95,7 +95,7 @@ gs232b_error_t gs232b_sta_start(gs232b_esp_wifi_sta_t *adapter)
     if (atomic_load(&adapter->cancelled)) { return GS232B_OK; }
     esp_netif_inherent_config_t base = ESP_NETIF_INHERENT_DEFAULT_WIFI_STA();
     base.if_key = "GS232B_STA";
-    base.route_prio = 100;
+    base.route_prio = GS232B_ESP_WIFI_STA_ROUTE_PRIORITY;
     const esp_netif_config_t netif = {.base = &base, .stack = ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA};
     adapter->netif = esp_netif_new(&netif);
     if (adapter->netif == NULL) { return sdk_result(adapter, ESP_ERR_NO_MEM); }

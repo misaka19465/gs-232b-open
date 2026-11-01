@@ -16,6 +16,7 @@
 #define GS232B_WS_CHUNK_BYTES GS232B_CONTROL_FEED_MAX_BYTES
 #define GS232B_WS_RX_PACKETS (GS232B_WS_MESSAGE_BYTES / GS232B_WS_CHUNK_BYTES)
 #define GS232B_WS_CONTROL_PACKETS 4U
+#define GS232B_WS_INTERFACE_NAME_BYTES 6U
 #define GS232B_WS_PING_US UINT64_C(5000000)
 #define GS232B_WS_PONG_TIMEOUT_US UINT64_C(15000000)
 #define GS232B_WS_SEND_TIMEOUT_US UINT64_C(2000000)
@@ -35,6 +36,7 @@ typedef struct {
 typedef struct {
     uint32_t address;
     uint64_t epoch;
+    char if_name[GS232B_WS_INTERFACE_NAME_BYTES];
 } gs232b_ws_interface_t;
 
 struct gs232b_esp_ws;
@@ -96,12 +98,14 @@ gs232b_session_io_t gs232b_esp_ws_io(gs232b_esp_ws_t *adapter);
  */
 gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t *dispatcher);
 /**
- * @brief 发布 ETH/STA 本机 IPv4（主机序）及非零 session_epoch；address=0 撤销。
+ * @brief 发布 ETH/STA 本机 IPv4（主机序）、lwIP netif 名称及非零 session_epoch。
+ * @param if_name 由 esp_netif_get_netif_impl_name 获取；address=0 时可为 NULL。
  * @note 由控制任务在 service 前调用；只使该接口旧连接失效。未发布的本机地址
  *       不接受 GS 连接，包括管理 SoftAP；同 IP 的两个接口因无法识别来源而拒绝。
+ *       每个接受的 TCP socket 在 Upgrade 前以 SO_BINDTODEVICE 绑定此接口；绑定失败拒绝连接。
  */
 gs232b_error_t gs232b_esp_ws_interface(gs232b_esp_ws_t *adapter,
-    gs232b_transport_t transport, uint32_t address, uint64_t epoch);
+    gs232b_transport_t transport, uint32_t address, uint64_t epoch, const char *if_name);
 /**
  * @brief 控制任务每轮调用：先交付关闭，再轮转最多 feed 256 字节，调度一次 TX pump。
  * @note 不调用 tick；调用方持续调用 dispatcher_tick。所有控制任务入口串行，

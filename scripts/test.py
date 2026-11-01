@@ -143,6 +143,7 @@ def check_websocket_link() -> None:
         "httpd_start", "httpd_stop", "httpd_register_uri_handler", "httpd_queue_work",
         "httpd_ws_recv_frame_part", "httpd_ws_send_frame_async",
         "httpd_sess_set_send_override", "lwip_shutdown",
+        "lwip_setsockopt",
         "gs232b_esp_wifi_sta_open", "gs232b_esp_ethernet_open",
     }
     if missing := required - defined:

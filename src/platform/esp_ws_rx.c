@@ -5,6 +5,8 @@
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 
+_Static_assert(GS232B_WS_INTERFACE_NAME_BYTES == IFNAMSIZ, "Revalidate lwIP interface name size");
+
 void gs232b_ws_disconnected(void *ctx)
 {
     gs232b_ws_client_t *client = ctx;
@@ -37,35 +39,67 @@ esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
     }
 #endif
     int interface = -1;
+    gs232b_ws_interface_t snapshot = {0};
+    gs232b_ws_client_t *client = NULL;
     for (size_t i = 0; i < 2; ++i) {
         if (address != 0 && adapter->interfaces[i].address == address) {
             if (interface != -1) { interface = -1; break; }
             interface = (int)i;
         }
     }
-    gs232b_ws_client_t *client = NULL;
     if (interface != -1) {
         for (size_t i = 0; i < GS232B_WS_CLIENTS; ++i) {
             if (!atomic_load(&adapter->clients[i].occupied)) {
                 client = &adapter->clients[i];
-                (void)xSemaphoreTake(client->ready, 0);
-                client->fd = fd;
-                client->interface = adapter->interfaces[interface];
-                client->transport = (gs232b_transport_t)(GS232B_TRANSPORT_ETHERNET_WS + interface);
-                client->message_size = client->control_head = client->control_count = 0;
-                client->wire_size = client->wire_sent = 0;
-                client->fragmented = client->awaiting_pong = client->shutdown_sent = false;
-                client->ping_serial = 0;
-                client->last_ping_us = client->last_pong_us = (uint64_t)esp_timer_get_time();
-                atomic_store(&client->transport_seen_ms, (uint32_t)(client->last_pong_us / 1000U));
-                atomic_store(&client->send_pending, false);
-                atomic_store(&client->occupied, true);
+                snapshot = adapter->interfaces[interface];
                 break;
             }
         }
     }
     (void)xSemaphoreGive(adapter->lock);
     if (client == NULL) { return ESP_FAIL; }
+
+    struct ifreq binding = {0};
+    size_t name_length = 0;
+    while (name_length < sizeof(snapshot.if_name) && snapshot.if_name[name_length] != '\0') {
+        ++name_length;
+    }
+    if (name_length == 0 || name_length == sizeof(snapshot.if_name) ||
+        name_length >= sizeof(binding.ifr_name)) { return ESP_FAIL; }
+    memcpy(binding.ifr_name, snapshot.if_name, name_length + 1U);
+    /* NOTE: socket 选项可能等待 TCP/IP 任务，不持有控制任务共享锁；绑定后重新验证
+     * 两个接口的归属，避免绑定期间地址变更或重名地址被错误接纳。 */
+    if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &binding, sizeof(binding)) != 0) {
+        return ESP_FAIL;
+    }
+
+    if (xSemaphoreTake(adapter->lock, 0) != pdPASS) { return ESP_FAIL; }
+    const gs232b_ws_interface_t current = adapter->interfaces[interface];
+    if (current.address != snapshot.address || current.epoch != snapshot.epoch ||
+        strcmp(current.if_name, snapshot.if_name) != 0 ||
+        adapter->interfaces[1 - interface].address == snapshot.address ||
+        atomic_load(&client->occupied)) {
+        (void)xSemaphoreGive(adapter->lock);
+        return ESP_FAIL;
+    }
+    (void)xSemaphoreTake(client->ready, 0);
+    client->fd = fd;
+    client->interface = snapshot;
+    client->transport = (gs232b_transport_t)(GS232B_TRANSPORT_ETHERNET_WS + interface);
+    client->message_size = client->control_head = client->control_count = 0;
+    client->wire_size = client->wire_sent = 0;
+    client->fragmented = client->awaiting_pong = client->shutdown_sent = false;
+    client->ping_serial = 0;
+    client->last_ping_us = client->last_pong_us = (uint64_t)esp_timer_get_time();
+    atomic_store(&client->transport_seen_ms, (uint32_t)(client->last_pong_us / 1000U));
+    atomic_store(&client->session_ready, false);
+    atomic_store(&client->close_requested, false);
+    atomic_store(&client->http_closed, false);
+    atomic_store(&client->pending, false);
+    atomic_store(&client->send_pending, false);
+    atomic_store(&client->occupied, true);
+    (void)xSemaphoreGive(adapter->lock);
+
     request->sess_ctx = client;
     request->free_ctx = gs232b_ws_disconnected;
     return ESP_OK;

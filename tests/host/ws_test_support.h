@@ -9,6 +9,8 @@
 
 #define WS_ETH_IP UINT32_C(0xc0a80102)
 #define WS_STA_IP UINT32_C(0xc0a80202)
+#define WS_ETH_IF_NAME "en0"
+#define WS_STA_IF_NAME "st0"
 
 typedef struct {
     gs232b_motion_sim_t sim;
@@ -37,8 +39,10 @@ static inline bool ws_init(ws_fixture_t *f)
         gs232b_fake_store_port(&f->store), gs232b_esp_ws_io(&f->ws),
         f->requests, sizeof(f->requests)) == GS232B_OK);
     CHECK(gs232b_esp_ws_open(&f->ws, &f->dispatcher) == GS232B_OK);
-    CHECK(gs232b_esp_ws_interface(&f->ws, GS232B_TRANSPORT_ETHERNET_WS, WS_ETH_IP, 1) == GS232B_OK);
-    CHECK(gs232b_esp_ws_interface(&f->ws, GS232B_TRANSPORT_WIFI_WS, WS_STA_IP, 1) == GS232B_OK);
+    CHECK(gs232b_esp_ws_interface(&f->ws, GS232B_TRANSPORT_ETHERNET_WS,
+        WS_ETH_IP, 1, WS_ETH_IF_NAME) == GS232B_OK);
+    CHECK(gs232b_esp_ws_interface(&f->ws, GS232B_TRANSPORT_WIFI_WS,
+        WS_STA_IP, 1, WS_STA_IF_NAME) == GS232B_OK);
     fake_ws.control_step = ws_control_step;
     fake_ws.control_ctx = &f->ws;
     return true;

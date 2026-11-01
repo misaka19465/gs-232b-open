@@ -3,6 +3,8 @@
 
 #include "gs232b/wifi_sta.h"
 
+#define GS232B_ESP_WIFI_STA_ROUTE_PRIORITY 100
+
 #ifdef ESP_PLATFORM
 #include <stdatomic.h>
 #include "esp_event.h"

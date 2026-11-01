@@ -382,7 +382,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
     if(motion_test STREQUAL "esp_ws_tests")
-        target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_watchdog_tests.c
+        target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_network_tests.c
+            ws_watchdog_tests.c
             ../../src/platform/esp_ws.c ../../src/platform/esp_ws_rx.c ../../src/platform/esp_ws_tx.c
             ../fakes/esp_idf/ws_api.c ../fakes/esp_idf/ws_rtos.c)
         target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf)

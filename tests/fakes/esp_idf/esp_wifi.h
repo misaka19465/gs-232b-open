@@ -15,7 +15,11 @@ typedef struct {
     int scan_method;
     uint8_t failure_retry_cnt;
 } wifi_sta_config_t;
-typedef union { wifi_sta_config_t sta; } wifi_config_t;
+typedef struct {
+    uint8_t ssid[32], password[64], ssid_len, channel, authmode, ssid_hidden, max_connection;
+} wifi_ap_config_t;
+typedef struct { uint8_t ssid[33]; int8_t rssi; wifi_auth_mode_t authmode; } wifi_ap_record_t;
+typedef union { wifi_sta_config_t sta; wifi_ap_config_t ap; } wifi_config_t;
 typedef struct { uint8_t ssid[32], ssid_len, bssid[6], reason; int8_t rssi; }
     wifi_event_sta_disconnected_t;
 enum { WIFI_EVENT_STA_START, WIFI_EVENT_STA_STOP, WIFI_EVENT_STA_CONNECTED, WIFI_EVENT_STA_DISCONNECTED };
@@ -34,4 +38,9 @@ esp_err_t esp_wifi_get_mac(wifi_interface_t, uint8_t *);
 esp_err_t esp_wifi_start(void);
 esp_err_t esp_wifi_stop(void);
 esp_err_t esp_wifi_connect(void);
+esp_err_t esp_wifi_scan_start(const void *, bool);
+esp_err_t esp_wifi_scan_get_ap_num(uint16_t *);
+esp_err_t esp_wifi_scan_get_ap_records(uint16_t *, wifi_ap_record_t *);
+esp_err_t esp_wifi_scan_get_ap_record(wifi_ap_record_t *);
+esp_err_t esp_wifi_clear_ap_list(void);
 #endif

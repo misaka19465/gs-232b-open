@@ -75,7 +75,7 @@ typedef struct gs232b_esp_ws {
     SemaphoreHandle_t lock;
     gs232b_dispatcher_t *dispatcher;
     gs232b_ws_client_t clients[GS232B_WS_CLIENTS];
-    gs232b_ws_interface_t interfaces[2];
+    gs232b_ws_interface_t interfaces[3];
     size_t cursor;
     gs232b_ws_client_t *opening;
     atomic_bool pump_pending;
@@ -98,7 +98,7 @@ gs232b_session_io_t gs232b_esp_ws_io(gs232b_esp_ws_t *adapter);
  */
 gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t *dispatcher);
 /**
- * @brief 发布 ETH/STA 本机 IPv4（主机序）、lwIP netif 名称及非零 session_epoch。
+ * @brief 发布 ETH/STA/SoftAP 本机 IPv4（主机序）、lwIP netif 名称及非零 session_epoch。
  * @param if_name 由 esp_netif_get_netif_impl_name 获取；address=0 时可为 NULL。
  * @note 由控制任务在 service 前调用；只使该接口旧连接失效。未发布的本机地址
  *       不接受 GS 连接，包括管理 SoftAP；同 IP 的两个接口因无法识别来源而拒绝。

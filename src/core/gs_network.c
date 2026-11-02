@@ -26,10 +26,24 @@ static const gs232b_json_schema_t confirm_schema = {
 static const gs232b_json_schema_t abort_schema = {
     abort_fields, sizeof(abort_fields) / sizeof(abort_fields[0])
 };
+static const gs232b_json_field_t prov_start_fields[] = {
+    {.name = "timeout_s", .type = GS232B_JSON_NUMBER}
+};
+static const gs232b_json_schema_t prov_start_schema = {
+    prov_start_fields, sizeof(prov_start_fields) / sizeof(prov_start_fields[0])
+};
+static const gs232b_json_field_t prov_scan_fields[] = {
+    {.name = "scan_id", .type = GS232B_JSON_NUMBER},
+    {.name = "cursor", .type = GS232B_JSON_NUMBER}
+};
+static const gs232b_json_schema_t prov_scan_schema = {
+    prov_scan_fields, sizeof(prov_scan_fields) / sizeof(prov_scan_fields[0])
+};
 
 static bool read_only(const gs232b_extension_request_t *request)
 {
-    return strcmp(request->cmd, "NET GET") == 0 || strcmp(request->cmd, "CFG STATUS") == 0;
+    return strcmp(request->cmd, "NET GET") == 0 || strcmp(request->cmd, "CFG STATUS") == 0 ||
+        strcmp(request->cmd, "PROV STATUS") == 0;
 }
 
 static gs232b_error_t check(void *ctx, const gs232b_extension_request_t *request)
@@ -39,6 +53,53 @@ static gs232b_error_t check(void *ctx, const gs232b_extension_request_t *request
     return request->transport == GS232B_TRANSPORT_UART1 ||
         request->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS ?
         GS232B_OK : GS232B_ERROR_NOT_AUTHORIZED;
+}
+
+static const char *provisioning_state(gs232b_provisioning_state_t state)
+{
+    switch (state) {
+    case GS232B_PROVISIONING_ACTIVE: return "active";
+    case GS232B_PROVISIONING_EXPIRED: return "expired";
+    default: return "off";
+    }
+}
+
+static int provisioning_status(const gs232b_provisioning_t *provisioning, bool include_password,
+    char *output, size_t capacity)
+{
+    gs232b_provisioning_status_t status;
+    if (gs232b_provisioning_snapshot(provisioning, &status) != GS232B_OK) return -1;
+    const unsigned remaining = (unsigned)((status.remaining_us + UINT64_C(999999)) / UINT64_C(1000000));
+    const unsigned a[] = {(status.ap.address >> 24) & 255U, (status.ap.address >> 16) & 255U,
+        (status.ap.address >> 8) & 255U, status.ap.address & 255U};
+    const unsigned m[] = {(status.ap.netmask >> 24) & 255U, (status.ap.netmask >> 16) & 255U,
+        (status.ap.netmask >> 8) & 255U, status.ap.netmask & 255U};
+    const unsigned g[] = {(status.ap.gateway >> 24) & 255U, (status.ap.gateway >> 16) & 255U,
+        (status.ap.gateway >> 8) & 255U, status.ap.gateway & 255U};
+    /* All generated AP fields are restricted to printable ASCII. */
+    if (include_password) {
+        return snprintf(output, capacity,
+            "{\"state\":\"%s\",\"first_boot\":%s,\"auto_started\":%s,"
+            "\"remaining_s\":%u,\"trial_active\":%s,\"trial_recovery\":%s,"
+            "\"ap\":{\"ssid\":\"%s\",\"password\":\"%s\","
+            "\"address\":\"%u.%u.%u.%u\",\"netmask\":\"%u.%u.%u.%u\","
+            "\"gateway\":\"%u.%u.%u.%u\"}}",
+            provisioning_state(status.state), status.first_boot ? "true" : "false",
+            status.auto_started ? "true" : "false", remaining,
+            status.trial_active ? "true" : "false", status.recovery_available ? "true" : "false",
+            status.ap.ssid, status.ap.password, a[0], a[1], a[2], a[3],
+            m[0], m[1], m[2], m[3], g[0], g[1], g[2], g[3]);
+    }
+    return snprintf(output, capacity,
+        "{\"state\":\"%s\",\"first_boot\":%s,\"auto_started\":%s,"
+        "\"remaining_s\":%u,\"trial_active\":%s,\"trial_recovery\":%s,"
+        "\"ap\":{\"ssid\":\"%s\",\"address\":\"%u.%u.%u.%u\","
+        "\"netmask\":\"%u.%u.%u.%u\",\"gateway\":\"%u.%u.%u.%u\"}}",
+        provisioning_state(status.state), status.first_boot ? "true" : "false",
+        status.auto_started ? "true" : "false", remaining,
+        status.trial_active ? "true" : "false", status.recovery_available ? "true" : "false",
+        status.ap.ssid, a[0], a[1], a[2], a[3], m[0], m[1], m[2], m[3],
+        g[0], g[1], g[2], g[3]);
 }
 
 static gs232b_error_t uint_field(gs232b_json_value_t object, const char *name,
@@ -72,6 +133,52 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
 {
     gs232b_dispatcher_t *dispatcher = ctx;
     gs232b_config_transaction_t *transaction = &dispatcher->network_config;
+    if (strcmp(request->cmd, "PROV STATUS") == 0) {
+        const int n = provisioning_status(&dispatcher->provisioning,
+            request->transport == GS232B_TRANSPORT_UART1, (char *)data, capacity);
+        if (n < 0 || (size_t)n >= capacity) return GS232B_ERROR_BUFFER_TOO_SMALL;
+        *size = (size_t)n;
+        return GS232B_OK;
+    }
+    if (strcmp(request->cmd, "PROV START") == 0) {
+        uint32_t timeout_seconds = 0;
+        gs232b_json_value_t value;
+        if (gs232b_json_get(request->arguments, "timeout_s", &value) == GS232B_OK) {
+            const gs232b_error_t error = gs232b_json_uint32(value, &timeout_seconds);
+            if (error != GS232B_OK) return error;
+        }
+        gs232b_error_t error = gs232b_provisioning_start(&dispatcher->provisioning,
+                                                          timeout_seconds);
+        if (error != GS232B_OK) return error;
+        const int n = provisioning_status(&dispatcher->provisioning, false,
+                                          (char *)data, capacity);
+        if (n < 0 || (size_t)n >= capacity) return GS232B_ERROR_BUFFER_TOO_SMALL;
+        *size = (size_t)n;
+        return GS232B_OK;
+    }
+    if (strcmp(request->cmd, "PROV STOP") == 0) {
+        const gs232b_error_t error = gs232b_provisioning_stop(&dispatcher->provisioning);
+        if (error != GS232B_OK) return error;
+        const int n = provisioning_status(&dispatcher->provisioning, false, (char *)data, capacity);
+        if (n < 0 || (size_t)n >= capacity) return GS232B_ERROR_BUFFER_TOO_SMALL;
+        *size = (size_t)n;
+        return GS232B_OK;
+    }
+    if (strcmp(request->cmd, "PROV SCAN") == 0) {
+        uint32_t scan_id = 0, cursor = 0;
+        gs232b_json_value_t value;
+        const bool has_id = gs232b_json_get(request->arguments, "scan_id", &value) == GS232B_OK;
+        const bool has_cursor = gs232b_json_get(request->arguments, "cursor", &value) == GS232B_OK;
+        if (has_id != has_cursor) return GS232B_ERROR_INVALID_ARGUMENT;
+        if (has_id) {
+            if (uint_field(request->arguments, "scan_id", &scan_id) != GS232B_OK || scan_id == 0 ||
+                uint_field(request->arguments, "cursor", &cursor) != GS232B_OK) {
+                return GS232B_ERROR_INVALID_ARGUMENT;
+            }
+        }
+        return gs232b_provisioning_scan_page(&dispatcher->provisioning,
+            scan_id, cursor, data, capacity, size);
+    }
     if (strcmp(request->cmd, "NET GET") == 0) {
         return gs232b_net_config_encode(transaction, &dispatcher->network_status, data, capacity, size);
     }
@@ -136,6 +243,7 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
                     trial_id, timeout_s);
             }
             *transaction = next;
+            (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning, true);
         }
         if (error == GS232B_OK) {
             memcpy(data, prepared, (size_t)n);
@@ -160,6 +268,9 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
         if (error == GS232B_OK) error = gs232b_config_trial_confirm(&next, trial_id,
             &dispatcher->store, dispatcher->network_apply);
         *transaction = next;
+        dispatcher->provisioning.active = next.active;
+        (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning,
+            next.trial.state != GS232B_CONFIG_TRIAL_NONE);
         if (error != GS232B_OK) return error;
     } else if (strcmp(request->cmd, "CFG ABORT") == 0) {
         n = snprintf(prepared, sizeof(prepared), "{}");
@@ -175,6 +286,9 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
             error = gs232b_config_transaction_abort(&next, request->context.session);
         }
         *transaction = next;
+        dispatcher->provisioning.active = next.active;
+        (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning,
+            next.trial.state != GS232B_CONFIG_TRIAL_NONE);
         if (error != GS232B_OK) return error;
     }
     if (error != GS232B_OK) return error;
@@ -201,6 +315,12 @@ gs232b_error_t gs232b_network_register(gs232b_dispatcher_t *dispatcher)
          .check = check, .handle = handle, .ctx = dispatcher},
         {.domain = "NET", .action = "GET", .check = check, .handle = handle, .ctx = dispatcher},
         {.domain = "NET", .action = "SET", .schema = &gs232b_net_patch_schema,
+         .check = check, .handle = handle, .ctx = dispatcher},
+        {.domain = "PROV", .action = "START", .schema = &prov_start_schema,
+         .check = check, .handle = handle, .ctx = dispatcher}
+        ,{.domain = "PROV", .action = "STATUS", .check = check, .handle = handle, .ctx = dispatcher},
+        {.domain = "PROV", .action = "STOP", .check = check, .handle = handle, .ctx = dispatcher},
+        {.domain = "PROV", .action = "SCAN", .schema = &prov_scan_schema,
          .check = check, .handle = handle, .ctx = dispatcher}
     };
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
@@ -236,7 +356,14 @@ gs232b_error_t gs232b_dispatcher_network_configure(gs232b_dispatcher_t *dispatch
         } else if (error == GS232B_OK && load_error != GS232B_ERROR_NOT_FOUND) {
             error = load_error;
         }
-        if (error == GS232B_OK) dispatcher->network_status = status;
+        if (error == GS232B_OK) {
+            dispatcher->network_status = status;
+            const gs232b_error_t provision_error = gs232b_provisioning_init(
+                &dispatcher->provisioning, dispatcher->control.clock, active, revision,
+                load_error == GS232B_OK, status, dispatcher->provisioning.ap_port,
+                dispatcher->provisioning.mac);
+            if (provision_error != GS232B_OK) error = provision_error;
+        }
     }
     return error;
 }
@@ -253,4 +380,22 @@ gs232b_error_t gs232b_dispatcher_network_apply_configure(gs232b_dispatcher_t *di
     }
     dispatcher->network_apply = apply;
     return GS232B_OK;
+}
+
+gs232b_error_t gs232b_dispatcher_provisioning_configure(gs232b_dispatcher_t *dispatcher,
+    gs232b_provisioning_ap_port_t ap_port, const uint8_t mac[6])
+{
+    if (dispatcher == NULL || !dispatcher->initialized || ap_port.start == NULL ||
+        ap_port.stop == NULL) return GS232B_ERROR_INVALID_ARGUMENT;
+    if (dispatcher->control.dispatching) return GS232B_ERROR_BUSY;
+    dispatcher->provisioning.ap_port = ap_port;
+    if (mac != NULL) memcpy(dispatcher->provisioning.mac, mac,
+                             sizeof(dispatcher->provisioning.mac));
+    gs232b_error_t error = gs232b_provisioning_make_ap_credentials(dispatcher->provisioning.mac,
+        &dispatcher->provisioning.status.ap);
+    if (error == GS232B_OK && dispatcher->provisioning.status.state == GS232B_PROVISIONING_ACTIVE &&
+        ap_port.start != NULL) {
+        error = ap_port.start(ap_port.ctx, &dispatcher->provisioning.status.ap);
+    }
+    return error;
 }

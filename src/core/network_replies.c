@@ -70,8 +70,14 @@ static void config(writer_t *writer, const gs232b_net_config_t *value)
     addresses(writer, ip->address, ip->netmask, ip->gateway, ip->dns);
     append(writer, "},\"wifi\":{\"enabled\":%s,\"ssid\":", boolean(value->wifi.enabled));
     quoted(writer, value->wifi.ssid);
-    append(writer, ",\"security\":\"wpa2-personal\",\"password_set\":%s}",
-        boolean(value->wifi.password[0] != '\0'));
+    append(writer, ",\"security\":\"%s\",\"password_set\":%s,\"mode\":\"%s\",\"address\":",
+        value->wifi.password[0] == '\0' ? "open" : "wpa2-personal",
+        boolean(value->wifi.password[0] != '\0'),
+        value->wifi.mode == GS232B_WIFI_STA_STATIC ? "static" : "dhcp");
+    ipv4(writer, value->wifi.ipv4.address);
+    append(writer, ",\"netmask\":"); ipv4(writer, value->wifi.ipv4.netmask);
+    append(writer, ",\"gateway\":"); ipv4(writer, value->wifi.ipv4.gateway);
+    append(writer, "}");
 }
 
 static uint64_t deadline(const gs232b_config_transaction_t *transaction)
@@ -145,6 +151,7 @@ static void runtime(writer_t *writer, const gs232b_ethernet_snapshot_t *eth,
     append(writer, "},\"wifi\":{\"state\":\"%s\",\"enabled\":%s,\"connected\":%s,\"ipv4_valid\":%s,",
         wifi_state(wifi->state), boolean(wifi->enabled), boolean(wifi->connected), boolean(wifi->ipv4_valid));
     addresses(writer, wifi->current.address, wifi->current.netmask, wifi->current.gateway, wifi->current.dns);
+    append(writer, ",\"ssid\":"); quoted(writer, wifi->ssid);
     append(writer, "}}");
 }
 

@@ -11,6 +11,16 @@ static bool cross_message_and_multiple_commands(void)
     ws_fixture_t f;
     CHECK(ws_init(&f));
     CHECK(strcmp(fake_ws.uri.uri, "/ws/gs232b") == 0);
+    CHECK(fake_ws.page_registered);
+    CHECK(strcmp(fake_ws.page_uri.uri, "/") == 0);
+    CHECK(fake_ws.page_uri.method == HTTP_GET && !fake_ws.page_uri.is_websocket);
+    httpd_req_t page_request = {.handle = &fake_ws, .method = HTTP_GET,
+        .user_ctx = fake_ws.page_uri.user_ctx};
+    CHECK(fake_ws.page_uri.handler(&page_request) == ESP_OK);
+    CHECK(strcmp(fake_ws.response_type, "text/html; charset=utf-8") == 0);
+    CHECK(fake_ws.response_size > 1000);
+    CHECK(strcmp(fake_ws.response_encoding, "gzip") == 0);
+    CHECK((uint8_t)fake_ws.response_body[0] == 0x1f && (uint8_t)fake_ws.response_body[1] == 0x8b);
     CHECK(fake_ws.uri.is_websocket && fake_ws.uri.handle_ws_control_frames);
     CHECK(fake_ws.config.server_port == 80 && !fake_ws.config.lru_purge_enable);
     CHECK(fake_ws.config.keep_alive_enable && fake_ws.config.max_open_sockets == 4);

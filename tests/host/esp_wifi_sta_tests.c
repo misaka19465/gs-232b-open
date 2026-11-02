@@ -1,5 +1,7 @@
 #include "wifi_sta_test_support.h"
 
+bool wifi_test_ipv4(void);
+
 static bool validation(void)
 {
     CHECK(!gs232b_wifi_sta_config_valid(NULL));
@@ -7,7 +9,7 @@ static bool validation(void)
     gs232b_wifi_sta_config_t c = {0};
     CHECK(gs232b_wifi_sta_config_valid(&c));
     c.enabled = true; CHECK(!gs232b_wifi_sta_config_valid(&c));
-    c = wifi_good; c.password[0] = 0; CHECK(!gs232b_wifi_sta_config_valid(&c));
+    c = wifi_good; c.password[0] = 0; CHECK(gs232b_wifi_sta_config_valid(&c));
     c = wifi_good; strcpy(c.password, "1234567"); CHECK(!gs232b_wifi_sta_config_valid(&c));
     strcpy(c.password, "12345678"); CHECK(gs232b_wifi_sta_config_valid(&c));
     memset(c.password, 'p', 63); c.password[63] = 0; CHECK(gs232b_wifi_sta_config_valid(&c));
@@ -130,7 +132,7 @@ static bool disable_and_reconfigure(void)
     CHECK(s.session_epoch > epoch && strcmp(s.ssid, replacement.ssid) == 0);
     CHECK(memcmp(fake_wifi_status().credentials.sta.ssid, replacement.ssid, strlen(replacement.ssid)) == 0);
     CHECK(memcmp(fake_wifi_status().credentials.sta.password, replacement.password, strlen(replacement.password)) == 0);
-    gs232b_wifi_sta_config_t invalid = replacement; invalid.password[0] = 0;
+    gs232b_wifi_sta_config_t invalid = replacement; strcpy(invalid.password, "short");
     CHECK(gs232b_esp_wifi_sta_configure(&f.sta, &invalid) == GS232B_ERROR_INVALID_ARGUMENT);
     CHECK(strcmp(f.sta.configured.password, replacement.password) == 0);
     CHECK(wifi_close(&f));
@@ -144,7 +146,7 @@ static bool disable_and_reconfigure(void)
 int main(void)
 {
     if (!validation() || !wrong_password_and_backoff() || !timeout_and_ip_events() ||
-        !disable_and_reconfigure() || !wifi_test_faults() || !wifi_test_coexistence()) { return 1; }
+        !disable_and_reconfigure() || !wifi_test_faults() || !wifi_test_coexistence() || !wifi_test_ipv4()) { return 1; }
     puts("Wi-Fi STA credentials, bounded retry, lifecycle, fault and Ethernet coexistence tests passed");
     return 0;
 }

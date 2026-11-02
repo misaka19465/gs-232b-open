@@ -11,7 +11,10 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static fake_wifi_status_t status;
 static esp_err_t faults[WIFI_FAKE_CALLS];
 static esp_netif_t *station;
-static esp_event_handler_instance_t defaults;
+static esp_netif_t *ap;
+static esp_event_handler_instance_t defaults, ap_defaults;
+static wifi_ap_record_t scan_records[80];
+static uint16_t scan_count, scan_cursor, scan_environment_count;
 
 static esp_err_t call(fake_wifi_call_t which)
 {
@@ -25,9 +28,12 @@ static esp_err_t call(fake_wifi_call_t which)
 
 void fake_wifi_reset(void)
 {
-    assert(station == NULL && defaults == NULL);
+    assert(station == NULL && ap == NULL && defaults == NULL && ap_defaults == NULL);
     memset(&status, 0, sizeof(status));
     memset(faults, 0, sizeof(faults));
+    scan_count = 0;
+    scan_cursor = 0;
+    scan_environment_count = 0;
 }
 
 fake_wifi_status_t fake_wifi_status(void)
@@ -53,7 +59,7 @@ static void default_event(void *ctx, esp_event_base_t base, int32_t id, void *da
     assert(station != NULL);
     if (id == WIFI_EVENT_STA_CONNECTED) {
         station->up = true;
-        station->dhcp = ESP_NETIF_DHCP_STARTED;
+        if (station->flags & ESP_NETIF_DHCP_CLIENT) station->dhcp = ESP_NETIF_DHCP_STARTED;
     } else if (id == WIFI_EVENT_STA_DISCONNECTED || id == WIFI_EVENT_STA_STOP) {
         station->up = false;
         station->dhcp = ESP_NETIF_DHCP_INIT;
@@ -62,10 +68,22 @@ static void default_event(void *ctx, esp_event_base_t base, int32_t id, void *da
     }
 }
 
+static void default_ap_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
+{
+    (void)ctx; (void)base; (void)id; (void)data;
+}
+
 esp_err_t esp_netif_attach_wifi_station(esp_netif_t *netif)
 {
     assert(station == NULL);
     station = netif;
+    return call(WIFI_FAKE_ATTACH);
+}
+
+esp_err_t esp_netif_attach_wifi_ap(esp_netif_t *netif)
+{
+    assert(ap == NULL);
+    ap = netif;
     return call(WIFI_FAKE_ATTACH);
 }
 
@@ -78,17 +96,32 @@ esp_err_t esp_wifi_set_default_wifi_sta_handlers(void)
                                                 default_event, NULL, &defaults);
 }
 
+esp_err_t esp_wifi_set_default_wifi_ap_handlers(void)
+{
+    const esp_err_t error = call(WIFI_FAKE_DEFAULTS);
+    if (error != ESP_OK) return error;
+    assert(ap_defaults == NULL);
+    return esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+        default_ap_event, NULL, &ap_defaults);
+}
+
 esp_err_t esp_wifi_clear_default_wifi_driver_and_handlers(void *netif)
 {
     const esp_err_t error = call(WIFI_FAKE_CLEAR);
     if (error != ESP_OK) { return error; }
-    assert(station == netif);
-    if (defaults != NULL) {
+    assert(station == netif || ap == netif);
+    if (station == netif && defaults != NULL) {
         const esp_err_t unregistered = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, defaults);
         if (unregistered != ESP_OK) { return unregistered; }
         defaults = NULL;
     }
-    station = NULL;
+    if (ap == netif && ap_defaults != NULL) {
+        const esp_err_t unregistered = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, ap_defaults);
+        if (unregistered != ESP_OK) return unregistered;
+        ap_defaults = NULL;
+    }
+    if (station == netif) station = NULL;
+    if (ap == netif) ap = NULL;
     return ESP_OK;
 }
 
@@ -123,14 +156,18 @@ esp_err_t esp_wifi_set_storage(wifi_storage_t storage)
 
 esp_err_t esp_wifi_set_mode(wifi_mode_t mode)
 {
-    assert(mode == WIFI_MODE_STA);
-    return call(WIFI_FAKE_MODE);
+    assert(mode == WIFI_MODE_STA || mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
+    const esp_err_t error = call(WIFI_FAKE_MODE);
+    if (error == ESP_OK) status.mode = mode;
+    return error;
 }
 
 esp_err_t esp_wifi_set_config(wifi_interface_t interface, wifi_config_t *config)
 {
-    assert(interface == WIFI_IF_STA && config->sta.threshold.authmode == WIFI_AUTH_WPA2_PSK);
-    assert(config->sta.failure_retry_cnt == 0);
+    assert((interface == WIFI_IF_STA &&
+            config->sta.threshold.authmode == (config->sta.password[0] == '\0' ?
+                WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK)) || interface == WIFI_IF_AP);
+    if (interface == WIFI_IF_STA) assert(config->sta.failure_retry_cnt == 0);
     const esp_err_t error = call(WIFI_FAKE_CONFIG);
     if (error != ESP_OK) { return error; }
     assert(pthread_mutex_lock(&lock) == 0);
@@ -141,7 +178,7 @@ esp_err_t esp_wifi_set_config(wifi_interface_t interface, wifi_config_t *config)
 
 esp_err_t esp_wifi_get_mac(wifi_interface_t interface, uint8_t *mac)
 {
-    assert(interface == WIFI_IF_STA);
+    assert(interface == WIFI_IF_STA || interface == WIFI_IF_AP);
     const esp_err_t error = call(WIFI_FAKE_MAC);
     if (error == ESP_OK) { memcpy(mac, "\x02\x00\x00\x00\x00\x11", 6); }
     return error;
@@ -172,6 +209,61 @@ esp_err_t esp_wifi_connect(void)
 {
     assert(fake_wifi_status().started);
     return call(WIFI_FAKE_CONNECT);
+}
+
+esp_err_t esp_wifi_scan_start(const void *config, bool block)
+{
+    (void)config; (void)block;
+    scan_count = scan_environment_count;
+    scan_cursor = 0;
+    return call(WIFI_FAKE_SCAN_START);
+}
+
+void fake_wifi_scan_results(const wifi_ap_record_t *records, uint16_t count)
+{
+    assert(count <= 80);
+    memcpy(scan_records, records, count * sizeof(*records));
+    scan_count = count;
+    scan_environment_count = count;
+    for (uint16_t i = 1; i < count; ++i) {
+        const wifi_ap_record_t record = scan_records[i];
+        uint16_t at = i;
+        while (at != 0 && scan_records[at - 1U].rssi < record.rssi) {
+            scan_records[at] = scan_records[at - 1U];
+            --at;
+        }
+        scan_records[at] = record;
+    }
+}
+
+esp_err_t esp_wifi_scan_get_ap_num(uint16_t *count)
+{
+    if (count == NULL) return ESP_ERR_INVALID_ARG;
+    *count = scan_count;
+    return call(WIFI_FAKE_SCAN_COUNT);
+}
+
+esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count, wifi_ap_record_t *records)
+{
+    if (count == NULL || (records == NULL && *count != 0)) return ESP_ERR_INVALID_ARG;
+    if (*count > scan_count) *count = scan_count;
+    memcpy(records, scan_records, *count * sizeof(*records));
+    return ESP_OK;
+}
+
+esp_err_t esp_wifi_scan_get_ap_record(wifi_ap_record_t *record)
+{
+    if (record == NULL || scan_cursor >= scan_count) return ESP_ERR_INVALID_ARG;
+    const esp_err_t error = call(WIFI_FAKE_SCAN_RECORD);
+    if (error == ESP_OK) *record = scan_records[scan_cursor++];
+    return error;
+}
+
+esp_err_t esp_wifi_clear_ap_list(void)
+{
+    const esp_err_t error = call(WIFI_FAKE_SCAN_CLEAR);
+    if (error == ESP_OK) scan_count = scan_cursor = 0;
+    return error;
 }
 
 void fake_wifi_connected(void)

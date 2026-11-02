@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.22)
 # This is a standalone native project: do not include the ESP-IDF project here.
 project(gs_232b_open_host_tests LANGUAGES C)
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../scripts/ensure_web.cmake")
+
 if(CMAKE_CROSSCOMPILING)
     message(FATAL_ERROR "Host tests require a native C compiler")
 endif()
@@ -31,7 +33,7 @@ add_test(NAME esp_ethernet COMMAND esp_ethernet_tests)
 set_tests_properties(esp_ethernet PROPERTIES TIMEOUT 30)
 
 add_executable(esp_wifi_sta_tests
-    esp_wifi_sta_tests.c wifi_sta_fault_tests.c wifi_sta_coexistence_tests.c
+    esp_wifi_sta_tests.c wifi_sta_fault_tests.c wifi_sta_coexistence_tests.c wifi_sta_ipv4_tests.c
     ../fakes/esp_idf/wifi_api.c ../fakes/esp_idf/ethernet_api.c
     ../fakes/esp_idf/ethernet_rtos.c ../fakes/spi_bus.c
     ../../src/core/wifi_sta.c ../../src/platform/esp_wifi_sta.c
@@ -198,6 +200,30 @@ endif()
 
 add_test(NAME app_main_returns COMMAND app_main_smoke)
 set_tests_properties(app_main_returns PROPERTIES TIMEOUT 5)
+
+add_executable(provisioning_tests provisioning_tests.c ../../src/core/provisioning.c
+    ../../src/core/network_config.c ../../src/core/wifi_sta.c ../../src/core/ethernet.c
+    ../../src/core/persistence.c ../../src/core/ports.c ../../src/core/types.c
+    ../../src/core/coordinates.c)
+target_include_directories(provisioning_tests PRIVATE ../../include)
+set_target_properties(provisioning_tests PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(provisioning_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME provisioning COMMAND provisioning_tests)
+set_tests_properties(provisioning PROPERTIES TIMEOUT 5)
+
+add_executable(provisioning_scan_tests provisioning_scan_tests.c
+    ../../src/core/provisioning_scan.c ../../src/core/extension_json.c
+    ../../src/core/wifi_sta.c ../../src/core/ethernet.c)
+target_include_directories(provisioning_scan_tests PRIVATE ../../include)
+set_target_properties(provisioning_scan_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(provisioning_scan_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME provisioning_scan COMMAND provisioning_scan_tests)
+set_tests_properties(provisioning_scan PROPERTIES TIMEOUT 5)
 
 add_executable(core_contract_tests
     core_contract_tests.c
@@ -393,7 +419,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/response_encoder.c
         ../../src/core/extension.c ../../src/core/extension_json.c
         ../../src/core/gs_extensions.c
-        ../../src/core/network_config.c ../../src/core/network_fields.c
+        ../../src/core/network_config.c ../../src/core/network_fields.c ../../src/core/provisioning.c
+        ../../src/core/provisioning_scan.c
         ../../src/core/network_replies.c ../../src/core/gs_network.c
         ../../src/core/ethernet.c ../../src/core/wifi_sta.c
         ../../src/core/command_upload.c
@@ -406,15 +433,24 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
     if(motion_test STREQUAL "gs_network_tests")
-        target_sources(${motion_test} PRIVATE network_validation_tests.c network_lifecycle_tests.c)
+        target_sources(${motion_test} PRIVATE network_validation_tests.c network_lifecycle_tests.c
+            network_ipv4_tests.c network_scan_tests.c)
     endif()
     if(motion_test STREQUAL "esp_ws_tests")
+        # NOTE: 与固件共享 HTML 源文件，原生测试不依赖 ESP-IDF 的交叉汇编器。
+        set(provisioning_html "${CMAKE_CURRENT_SOURCE_DIR}/../../src/web/provisioning.html.gz")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${provisioning_html}")
+        file(READ "${provisioning_html}" provisioning_hex HEX)
+        string(REGEX REPLACE "(..)" "0x\\1," provisioning_bytes "${provisioning_hex}")
+        file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/provisioning_html.h"
+            CONTENT "static const unsigned char provisioning_html[] = {${provisioning_bytes}};\n")
         target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_network_tests.c
             ws_watchdog_tests.c
             ../../src/platform/esp_ws.c ../../src/platform/esp_ws_rx.c ../../src/platform/esp_ws_tx.c
+            ../../src/platform/provisioning_page.c
             ../fakes/esp_idf/ws_api.c ../fakes/esp_idf/ws_rtos.c)
-        target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf)
-        target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM
+        target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf "${CMAKE_CURRENT_BINARY_DIR}")
+        target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM GS232B_TEST_ASSETS
             CONFIG_HTTPD_WS_SUPPORT=1 CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=1
             CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT=1 CONFIG_HTTPD_QUEUE_WORK_BLOCKING=0
             CONFIG_LWIP_IPV6=1)

@@ -99,6 +99,9 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
                                 request_bytes, capacity);
     if (error == GS232B_OK) error = gs232b_config_transaction_init(&dispatcher->network_config,
         motion->manager->clock, NULL, 0);
+    if (error == GS232B_OK) error = gs232b_provisioning_init(&dispatcher->provisioning,
+        motion->manager->clock, NULL, 0, true, (gs232b_net_status_port_t){0},
+        (gs232b_provisioning_ap_port_t){0}, NULL);
     if (error == GS232B_OK) error = gs232b_network_register(dispatcher);
     dispatcher->initialized = error == GS232B_OK;
     return error;
@@ -166,6 +169,9 @@ gs232b_error_t gs232b_dispatcher_feed(gs232b_dispatcher_t *dispatcher,
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     (void)gs232b_config_trial_tick(&dispatcher->network_config, dispatcher->network_apply);
+    (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning,
+        dispatcher->network_config.trial.state != GS232B_CONFIG_TRIAL_NONE);
+    (void)gs232b_provisioning_tick(&dispatcher->provisioning);
     gs232b_config_transaction_expire(&dispatcher->network_config);
     const gs232b_error_t error = gs232b_control_feed(&dispatcher->control, context, bytes, size);
     const gs232b_error_t send_error = gs232b_gs_flush(dispatcher);
@@ -196,6 +202,9 @@ gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher)
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     (void)gs232b_config_trial_tick(&dispatcher->network_config, dispatcher->network_apply);
+    (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning,
+        dispatcher->network_config.trial.state != GS232B_CONFIG_TRIAL_NONE);
+    (void)gs232b_provisioning_tick(&dispatcher->provisioning);
     gs232b_config_transaction_expire(&dispatcher->network_config);
     if (dispatcher->watchdog_timeout_us != 0) {
         if (!gs232b_session_key_equal(dispatcher->watchdog_session, dispatcher->control.owner)) {

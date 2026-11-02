@@ -23,6 +23,14 @@ Dispatcher 内置 `!CFG BEGIN`、`!CFG CHECK`、`!CFG STATUS`、`!CFG APPLY`、`
 
 `NET SET` 合并给出的字段，省略值保留 candidate 原值。ETH mode 为 `dhcp` 或 `static`；IPv4 使用严格四段十进制，不接受前导零。静态配置要求单播主机、连续 `/1` 至 `/30` 掩码和同子网的不同网关；DNS 可省略或设为 `0.0.0.0`。切到 DHCP 时保留候选中的静态地址字段，以便继续编辑；DHCP 有效配置比较和实际运行快照不使用这些保留字段。
 
-Wi-Fi security 固定为 `wpa2-personal`。SSID 按解码后的 UTF-8 字节计数，范围 1 至 32；禁用 Wi-Fi 时可同时清空 SSID 和密码。口令接受 8 至 63 个可打印 ASCII 字节，或 64 个十六进制字符 PSK。字符串不得含 NUL；纯星号、`redacted`、`[redacted]` 和 `<redacted>` 不作为新密码接受。错误 patch 不修改 candidate。
+Wi-Fi 空口令表示开放网络，`NET GET` 返回 `security:"open"`；非空口令使用 WPA2 Personal。SSID 按解码后的 UTF-8 字节计数，范围 1 至 32；禁用 Wi-Fi 时可同时清空 SSID 和密码。WPA2 口令接受 8 至 63 个可打印 ASCII 字节，或 64 个十六进制字符 PSK。字符串不得含 NUL；纯星号、`redacted`、`[redacted]` 和 `<redacted>` 不作为新密码接受。错误 patch 不修改 candidate。
+
+Wi-Fi 有独立的 `mode`（`dhcp` 或 `static`）、`address`、`netmask` 和 `gateway`。静态地址使用与 ETH 相同的主机、掩码和网关校验，网关可省略或设为 `0.0.0.0`；Wi-Fi 配置不接受 DNS 字段。修改 Wi-Fi 地址不会改变 ETH；APPLY/ABORT/CONFIRM 覆盖完整地址配置。
+
+```text
+!NET SET {"wifi":{"mode":"static","address":"192.168.20.50","netmask":"255.255.255.0","gateway":"192.168.20.1"}}
+```
+
+新写入的网络域使用 schema 3，追加 Wi-Fi IPv4 方式、地址、掩码和网关；schema 1/2 继续读取并默认 STA DHCP。确认保存后才写入新 schema，试运行仍只保存在 RAM。
 
 `NET GET` 的 active 和 candidate 都只提供 `password_set` 布尔值，不返回口令或可回写的脱敏字符串。若调用方未装载运行状态端口，`runtime` 为 `null`；运行快照由端口提供实际接口状态，不从 candidate 推导。接口状态用 `link_down`、`link_up_no_ip`、`dhcp_wait`、`ready`、`error`（ETH）及 `disabled`、`starting`、`connecting`、`dhcp_wait`、`ready`、`retry_wait`、`error`（Wi-Fi）表示。

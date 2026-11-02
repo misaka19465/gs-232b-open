@@ -14,7 +14,11 @@ static const gs232b_json_field_t wifi_fields[] = {
     {.name = "enabled", .type = GS232B_JSON_BOOL},
     {.name = "ssid", .type = GS232B_JSON_STRING, .max_bytes = GS232B_WIFI_STA_SSID_MAX},
     {.name = "password", .type = GS232B_JSON_STRING, .max_bytes = GS232B_WIFI_STA_PASSWORD_MAX},
-    {.name = "security", .type = GS232B_JSON_STRING, .max_bytes = 13}
+    {.name = "security", .type = GS232B_JSON_STRING, .max_bytes = 13},
+    {.name = "mode", .type = GS232B_JSON_STRING, .max_bytes = 6},
+    {.name = "address", .type = GS232B_JSON_STRING, .max_bytes = 15},
+    {.name = "netmask", .type = GS232B_JSON_STRING, .max_bytes = 15},
+    {.name = "gateway", .type = GS232B_JSON_STRING, .max_bytes = 15}
 };
 static const gs232b_json_schema_t eth_schema = {eth_fields, sizeof(eth_fields) / sizeof(eth_fields[0])};
 static const gs232b_json_schema_t wifi_schema = {wifi_fields, sizeof(wifi_fields) / sizeof(wifi_fields[0])};
@@ -97,6 +101,15 @@ static bool placeholder(const char *password)
 static gs232b_error_t patch_wifi(gs232b_json_value_t object, gs232b_wifi_sta_config_t *wifi)
 {
     gs232b_json_value_t value;
+    /* NOTE: 地址规则共用校验，实际字段仍由 STA 与 ETH 独立持有。 */
+    gs232b_ethernet_config_t ip = {
+        .mode = wifi->mode == GS232B_WIFI_STA_STATIC ? GS232B_ETHERNET_STATIC : GS232B_ETHERNET_DHCP,
+        .ipv4 = {.address = wifi->ipv4.address, .netmask = wifi->ipv4.netmask,
+            .gateway = wifi->ipv4.gateway}
+    };
+    if (patch_eth(object, &ip) != GS232B_OK) return GS232B_ERROR_INVALID_ARGUMENT;
+    wifi->mode = ip.mode == GS232B_ETHERNET_STATIC ? GS232B_WIFI_STA_STATIC : GS232B_WIFI_STA_DHCP;
+    wifi->ipv4 = (gs232b_wifi_sta_address_t){ip.ipv4.address, ip.ipv4.netmask, ip.ipv4.gateway};
     if (gs232b_json_get(object, "enabled", &value) == GS232B_OK) {
         wifi->enabled = gs232b_byte_span_equal_ascii_ci(value.raw, "true");
     }
@@ -113,6 +126,7 @@ static gs232b_error_t patch_wifi(gs232b_json_value_t object, gs232b_wifi_sta_con
         if (wifi->password[0] != '\0') {
             gs232b_wifi_sta_config_t check = *wifi;
             memcpy(check.ssid, "check", sizeof("check"));
+            check.mode = GS232B_WIFI_STA_DHCP;
             if (!gs232b_wifi_sta_config_valid(&check)) return GS232B_ERROR_INVALID_ARGUMENT;
         }
     }

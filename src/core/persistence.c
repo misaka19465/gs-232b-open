@@ -339,6 +339,13 @@ static bool network_config_valid(const gs232b_network_config_t *config)
         config->password[config->password_length] != '\0') {
         return false;
     }
+    if (config->wifi_mode != GS232B_WIFI_STA_DHCP && config->wifi_mode != GS232B_WIFI_STA_STATIC) return false;
+    if (config->wifi_mode == GS232B_WIFI_STA_STATIC) {
+        const gs232b_ethernet_config_t ip = {.mode = GS232B_ETHERNET_STATIC,
+            .ipv4 = {.address = config->wifi_ipv4.address, .netmask = config->wifi_ipv4.netmask,
+                .gateway = config->wifi_ipv4.gateway}};
+        if (!gs232b_ethernet_config_valid(&ip)) return false;
+    }
     if (!config->enabled && config->ssid_length == 0 && config->password_length == 0) {
         return true;
     }
@@ -372,8 +379,10 @@ static bool decode_network_payload(const gs232b_persisted_record_t *record,
         config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
         return network_config_valid(config);
     }
-    if (record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK &&
-        record->payload_size == current_size) {
+    /* NOTE: schema 1/2 继续按原布局读取并默认 STA DHCP；仅新写入使用 schema 3。 */
+    if ((record->schema_version == 2U && record->payload_size == current_size) ||
+        (record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK &&
+         record->payload_size == current_size + 13U)) {
         const uint8_t *payload = record->payload;
         config->eth.mode = (gs232b_ethernet_mode_t)payload[0];
         config->eth.ipv4.address = read_u32(&payload[1]);
@@ -390,6 +399,13 @@ static bool decode_network_payload(const gs232b_persisted_record_t *record,
         memcpy(config->password, &wifi[4U + GS232B_NETWORK_SSID_MAX],
                GS232B_NETWORK_PASSWORD_MAX);
         config->last_confirmed_trial_id = read_u32(&payload[21U + legacy_size]);
+        if (record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK) {
+            const uint8_t *ip = &payload[current_size];
+            config->wifi_mode = (gs232b_wifi_sta_mode_t)ip[0];
+            config->wifi_ipv4.address = read_u32(&ip[1]);
+            config->wifi_ipv4.netmask = read_u32(&ip[5]);
+            config->wifi_ipv4.gateway = read_u32(&ip[9]);
+        }
         config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
         config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
         return wifi[0] <= 1U && network_config_valid(config);
@@ -435,9 +451,10 @@ gs232b_error_t gs232b_persistence_network_commit(
     }
     const size_t legacy_size = 1U + 1U + GS232B_NETWORK_SSID_MAX + 1U +
                                GS232B_NETWORK_PASSWORD_MAX + 1U;
-    const size_t payload_size = 1U + 5U * sizeof(uint32_t) + legacy_size + sizeof(uint32_t);
+    const size_t base_size = 1U + 5U * sizeof(uint32_t) + legacy_size + sizeof(uint32_t);
+    const size_t payload_size = base_size + 13U;
     uint8_t payload[1U + 5U * sizeof(uint32_t) + 1U + 1U + GS232B_NETWORK_SSID_MAX +
-                    1U + GS232B_NETWORK_PASSWORD_MAX + 1U + sizeof(uint32_t)] = {0};
+                    1U + GS232B_NETWORK_PASSWORD_MAX + 1U + sizeof(uint32_t) + 13U] = {0};
     payload[0] = (uint8_t)config->eth.mode;
     write_u32(&payload[1], config->eth.ipv4.address);
     write_u32(&payload[5], config->eth.ipv4.netmask);
@@ -452,6 +469,12 @@ gs232b_error_t gs232b_persistence_network_commit(
     wifi[3U + GS232B_NETWORK_SSID_MAX] = config->password_length;
     memcpy(&wifi[4U + GS232B_NETWORK_SSID_MAX], config->password, config->password_length);
     write_u32(&payload[21U + legacy_size], config->last_confirmed_trial_id);
+    payload[base_size] = (uint8_t)config->wifi_mode;
+    if (config->wifi_mode == GS232B_WIFI_STA_STATIC) {
+        write_u32(&payload[base_size + 1U], config->wifi_ipv4.address);
+        write_u32(&payload[base_size + 5U], config->wifi_ipv4.netmask);
+        write_u32(&payload[base_size + 9U], config->wifi_ipv4.gateway);
+    }
     return gs232b_persistence_commit(store, GS232B_STORE_NETWORK, expected_revision,
                                      GS232B_PERSISTENCE_SCHEMA_NETWORK, payload,
                                      payload_size, new_revision);

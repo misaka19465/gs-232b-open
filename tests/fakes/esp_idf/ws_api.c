@@ -41,9 +41,38 @@ esp_err_t httpd_register_uri_handler(httpd_handle_t server, const httpd_uri_t *u
 {
     assert(server == &fake_ws);
     if (fake_ws.fail_register) { return ESP_FAIL; }
-    fake_ws.uri = *uri;
+    if (strcmp(uri->uri, "/") == 0) {
+        fake_ws.page_uri = *uri;
+        fake_ws.page_registered = true;
+    } else {
+        fake_ws.uri = *uri;
+    }
     return ESP_OK;
 }
+
+esp_err_t httpd_resp_set_type(httpd_req_t *request, const char *type)
+{
+    (void)request;
+    fake_ws.response_type = type;
+    return ESP_OK;
+}
+
+esp_err_t httpd_resp_send(httpd_req_t *request, const char *bytes, ssize_t size)
+{
+    (void)request;
+    fake_ws.response_body = bytes;
+    fake_ws.response_size = size;
+    return ESP_OK;
+}
+
+esp_err_t httpd_resp_set_hdr(httpd_req_t *request, const char *name, const char *value)
+{
+    (void)request;
+    assert(strcmp(name, "Content-Encoding") == 0);
+    fake_ws.response_encoding = value;
+    return ESP_OK;
+}
+
 int httpd_req_to_sockfd(httpd_req_t *request)
 {
     return (int)((fake_ws_socket_t *)request->aux - fake_ws.sockets);

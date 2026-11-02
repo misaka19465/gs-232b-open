@@ -108,7 +108,7 @@ static bool test_incremental_candidate_and_dhcp_preservation(void)
     CHECK(response_contains(&f, 0, "!NET SET {\"wifi\":{\"enabled\":true}}\r", "\"ok\":true"));
     CHECK(rejected(&f, 0, "!CFG CHECK\r", GS232B_ERROR_INVALID_ARGUMENT));
     CHECK(response_contains(&f, 0, "!NET SET {\"wifi\":{\"ssid\":\"restored\"}}\r", "\"ok\":true"));
-    CHECK(rejected(&f, 0, "!CFG CHECK\r", GS232B_ERROR_INVALID_ARGUMENT));
+    CHECK(response_contains(&f, 0, "!CFG CHECK\r", "\"valid\":true"));
     CHECK(response_contains(&f, 0, "!NET SET {\"wifi\":{\"password\":\"12345678\"}}\r", "\"ok\":true"));
     CHECK(response_contains(&f, 0, "!CFG CHECK\r", "\"valid\":true"));
     return true;

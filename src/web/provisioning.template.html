@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN" class="mdui-theme-light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f9f2">
+  <title>GS-232B</title>
+  <style>/* WEB_STYLES */</style>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div class="device-mark" data-icon="wifi" aria-hidden="true"></div>
+      <p class="device-name">GS-232B</p>
+      <h1 data-text="title"></h1>
+      <p class="introduction" data-text="introduction"></p>
+    </header>
+    <section class="network-card" aria-labelledby="networks-heading">
+      <div class="list-heading">
+        <h2 id="networks-heading" data-text="networks"></h2>
+        <span id="network-count"></span>
+      </div>
+      <div id="scan-status" class="scan-status" role="status">
+        <mdui-circular-progress id="scan-progress"></mdui-circular-progress>
+        <span id="scan-message" data-text="scanning"></span>
+      </div>
+      <mdui-list id="networks">
+        <mdui-list-item id="other-network" rounded>
+          <span slot="icon" class="network-icon other-icon" data-icon="add"></span>
+          <span data-text="other"></span>
+          <span slot="description" data-text="otherDescription"></span>
+          <span slot="end-icon" class="trailing-icon" data-icon="chevron"></span>
+        </mdui-list-item>
+      </mdui-list>
+    </section>
+    <mdui-button id="refresh" variant="tonal" class="refresh-button">
+      <span slot="icon" data-icon="refresh"></span>
+      <span data-text="refresh"></span>
+    </mdui-button>
+    <section id="trial-card" class="trial-card" hidden aria-live="polite">
+      <h2 data-text="trialTitle"></h2>
+      <p id="trial-status"></p>
+      <p id="trial-remaining" class="supporting-text"></p>
+      <div class="trial-actions">
+        <mdui-button id="restore" variant="text" data-text="restore"></mdui-button>
+        <mdui-button id="save" variant="filled" data-text="save" disabled></mdui-button>
+      </div>
+    </section>
+    <p id="status" class="connection-status" role="status" aria-live="polite" data-text="offline"></p>
+  </main>
+
+  <mdui-dialog id="network-dialog" close-on-esc close-on-overlay-click aria-labelledby="dialog-heading">
+    <div slot="header" class="dialog-header">
+      <span class="dialog-icon" data-icon="wifi" aria-hidden="true"></span>
+      <mdui-button-icon id="close-dialog" data-aria="cancel">
+        <span data-icon="close"></span>
+      </mdui-button-icon>
+      <h2 id="dialog-heading"></h2>
+    </div>
+    <p id="dialog-description" class="dialog-description"></p>
+    <form id="network-form" novalidate>
+      <div id="manual-fields" class="field-stack" hidden>
+        <mdui-text-field id="manual-ssid" variant="outlined" data-label="ssid" autocomplete="off"></mdui-text-field>
+        <mdui-text-field id="manual-key" variant="outlined" data-label="key" data-helper="keyHint" type="password" toggle-password autocomplete="new-password" maxlength="64"></mdui-text-field>
+      </div>
+      <div id="password-fields" class="field-stack" hidden>
+        <mdui-text-field id="password" variant="outlined" data-label="password" type="password" toggle-password autocomplete="new-password" maxlength="64"></mdui-text-field>
+      </div>
+      <div id="advanced-panel" class="advanced-panel field-stack" hidden>
+        <mdui-select id="ip-mode" variant="outlined" data-label="ipMode" value="dhcp">
+          <mdui-menu-item value="dhcp" data-text="dhcp"></mdui-menu-item>
+          <mdui-menu-item value="static" data-text="static"></mdui-menu-item>
+        </mdui-select>
+        <div id="static-fields" class="field-stack" hidden>
+          <mdui-text-field id="ip-address" variant="outlined" data-label="ipAddress" inputmode="decimal" autocomplete="off" placeholder="192.168.1.50"></mdui-text-field>
+          <mdui-text-field id="netmask" variant="outlined" data-label="netmask" inputmode="decimal" autocomplete="off" value="255.255.255.0"></mdui-text-field>
+          <mdui-text-field id="gateway" variant="outlined" data-label="gateway" data-helper="gatewayHint" inputmode="decimal" autocomplete="off"></mdui-text-field>
+        </div>
+      </div>
+      <p id="dialog-error" class="error-message" role="alert" hidden></p>
+    </form>
+    <mdui-button id="advanced" slot="action" variant="text" aria-expanded="false" aria-controls="advanced-panel">
+      <span data-text="advanced"></span>
+      <span slot="end-icon" data-icon="expand"></span>
+    </mdui-button>
+    <mdui-button id="join" slot="action" variant="filled" data-text="connect"></mdui-button>
+  </mdui-dialog>
+  <script>/* WEB_SCRIPT */</script>
+</body>
+</html>

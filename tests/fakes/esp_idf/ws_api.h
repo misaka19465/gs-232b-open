@@ -22,6 +22,10 @@ typedef struct {
 typedef struct {
     httpd_config_t config;
     httpd_uri_t uri;
+    httpd_uri_t page_uri;
+    const char *response_type, *response_body;
+    const char *response_encoding;
+    ssize_t response_size;
     fake_ws_socket_t sockets[FAKE_WS_SOCKETS];
     httpd_work_fn_t work;
     void *work_ctx;
@@ -32,7 +36,7 @@ typedef struct {
     uint64_t now_us;
     size_t allocations, live_semaphores, hooks, handlers;
     size_t fail_allocation;
-    bool started, fail_start, fail_register, fail_stop, fail_queue, fail_override, fail_encode;
+    bool started, page_registered, fail_start, fail_register, fail_stop, fail_queue, fail_override, fail_encode;
 } fake_ws_t;
 extern fake_ws_t fake_ws;
 

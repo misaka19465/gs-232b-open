@@ -25,6 +25,8 @@ ESP_EVENT_DECLARE_BASE(IP_EVENT);
 #define ESP_NETIF_INHERENT_DEFAULT_WIFI_STA() { .flags = ESP_NETIF_DHCP_CLIENT, \
     .if_key = "WIFI_STA_DEF", .route_prio = 100 }
 #define ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA ((void *)2)
+#define ESP_NETIF_INHERENT_DEFAULT_WIFI_AP() { .flags = 0, .if_key = "WIFI_AP_DEF", .route_prio = 10 }
+#define ESP_NETIF_NETSTACK_DEFAULT_WIFI_AP ((void *)3)
 #define IP_EVENT_ETH_GOT_IP 100
 #define IP_EVENT_ETH_LOST_IP 101
 #define ESP_IPADDR_TYPE_V4 0

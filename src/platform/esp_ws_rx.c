@@ -41,7 +41,7 @@ esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
     int interface = -1;
     gs232b_ws_interface_t snapshot = {0};
     gs232b_ws_client_t *client = NULL;
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         if (address != 0 && adapter->interfaces[i].address == address) {
             if (interface != -1) { interface = -1; break; }
             interface = (int)i;
@@ -75,9 +75,12 @@ esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
 
     if (xSemaphoreTake(adapter->lock, 0) != pdPASS) { return ESP_FAIL; }
     const gs232b_ws_interface_t current = adapter->interfaces[interface];
+    const bool duplicate = (interface != 0 && adapter->interfaces[0].address == snapshot.address) ||
+        (interface != 1 && adapter->interfaces[1].address == snapshot.address) ||
+        (interface != 2 && adapter->interfaces[2].address == snapshot.address);
     if (current.address != snapshot.address || current.epoch != snapshot.epoch ||
         strcmp(current.if_name, snapshot.if_name) != 0 ||
-        adapter->interfaces[1 - interface].address == snapshot.address ||
+        duplicate ||
         atomic_load(&client->occupied)) {
         (void)xSemaphoreGive(adapter->lock);
         return ESP_FAIL;

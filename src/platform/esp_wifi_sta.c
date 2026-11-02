@@ -1,5 +1,6 @@
 #include "esp_wifi_sta_internal.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static atomic_flag radio_owned = ATOMIC_FLAG_INIT;
@@ -23,8 +24,10 @@ static void worker(void *ctx)
     while (xQueueReceive(adapter->requests, &job, portMAX_DELAY) == pdPASS) {
         if (job == GS232B_STA_JOB_EXIT) { break; }
         gs232b_error_t result = gs232b_sta_stop(adapter);
-        if (result == GS232B_OK && job == GS232B_STA_JOB_APPLY &&
-            adapter->configured.enabled && !atomic_load(&adapter->cancelled)) {
+        if (result == GS232B_OK && job != GS232B_STA_JOB_STOP &&
+            job != GS232B_STA_JOB_EXIT &&
+            (adapter->configured.enabled || adapter->ap_requested) &&
+            !atomic_load(&adapter->cancelled)) {
             result = gs232b_sta_start(adapter);
         }
         (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
@@ -246,4 +249,114 @@ gs232b_error_t gs232b_esp_wifi_sta_close(gs232b_esp_wifi_sta_t *adapter)
         adapter->closing = 4;
     }
     return release(adapter);
+}
+
+static gs232b_error_t ap_start(void *ctx, const gs232b_provisioning_ap_config_t *config)
+{
+    return gs232b_esp_wifi_sta_ap_start(ctx, config);
+}
+
+static gs232b_error_t ap_stop(void *ctx)
+{
+    return gs232b_esp_wifi_sta_ap_stop(ctx);
+}
+
+static gs232b_error_t ap_scan(void *ctx, gs232b_provisioning_ap_t *aps,
+    size_t capacity, size_t *count, bool *truncated)
+{
+    return gs232b_esp_wifi_sta_ap_scan(ctx, aps, capacity, count, truncated);
+}
+
+gs232b_provisioning_ap_port_t gs232b_esp_wifi_sta_ap_port(gs232b_esp_wifi_sta_t *adapter)
+{
+    return (gs232b_provisioning_ap_port_t){.ctx = adapter, .start = ap_start, .stop = ap_stop,
+        .scan = ap_scan};
+}
+
+gs232b_error_t gs232b_esp_wifi_sta_ap_start(gs232b_esp_wifi_sta_t *adapter,
+    const gs232b_provisioning_ap_config_t *config)
+{
+    const char *ssid_end = config == NULL ? NULL : memchr(config->ssid, '\0', sizeof(config->ssid));
+    const char *password_end = config == NULL ? NULL : memchr(config->password, '\0', sizeof(config->password));
+    const size_t ssid_length = ssid_end == NULL ? SIZE_MAX : (size_t)(ssid_end - config->ssid);
+    const size_t password_length = password_end == NULL ? SIZE_MAX : (size_t)(password_end - config->password);
+    if (adapter == NULL || config == NULL || ssid_end == NULL || password_end == NULL ||
+        ssid_length == 0 || ssid_length > 32U || password_length < 8U ||
+        password_length > 63U || config->address == 0 ||
+        config->netmask == 0 || config->gateway != config->address) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    if (!adapter->opened || adapter->closing != 0) return GS232B_ERROR_NOT_READY;
+    if (adapter->job != GS232B_STA_JOB_NONE) return GS232B_ERROR_BUSY;
+    adapter->ap_config = *config;
+    adapter->ap_requested = true;
+    const gs232b_error_t error = dispatch(adapter, GS232B_STA_JOB_AP_START);
+    if (error != GS232B_OK) adapter->ap_requested = false;
+    return error;
+}
+
+gs232b_error_t gs232b_esp_wifi_sta_ap_stop(gs232b_esp_wifi_sta_t *adapter)
+{
+    if (adapter == NULL) return GS232B_ERROR_INVALID_ARGUMENT;
+    if (!adapter->opened || adapter->closing != 0) return GS232B_ERROR_NOT_READY;
+    if (adapter->job != GS232B_STA_JOB_NONE) return GS232B_ERROR_BUSY;
+    adapter->ap_requested = false;
+    const gs232b_error_t error = dispatch(adapter, GS232B_STA_JOB_AP_STOP);
+    if (error != GS232B_OK) adapter->ap_requested = true;
+    return error;
+}
+
+static bool scan_ssid_valid(const wifi_ap_record_t *record)
+{
+    gs232b_wifi_sta_config_t network = {0};
+    const size_t length = strnlen((const char *)record->ssid, sizeof(record->ssid));
+    if (length == 0 || length > GS232B_WIFI_STA_SSID_MAX) return false;
+    memcpy(network.ssid, record->ssid, length);
+    return gs232b_wifi_sta_config_valid(&network);
+}
+
+gs232b_error_t gs232b_esp_wifi_sta_ap_scan(gs232b_esp_wifi_sta_t *adapter,
+    gs232b_provisioning_ap_t *aps, size_t capacity, size_t *count, bool *truncated)
+{
+    if (aps == NULL || capacity == 0 || count == NULL || truncated == NULL) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    *count = 0;
+    *truncated = false;
+    if (adapter == NULL || !adapter->opened || !adapter->ap_requested || adapter->closing != 0) {
+        return GS232B_ERROR_NOT_READY;
+    }
+    if (adapter->job != GS232B_STA_JOB_NONE) return GS232B_ERROR_BUSY;
+    esp_err_t error = esp_wifi_scan_start(NULL, true);
+    if (error != ESP_OK) {
+        (void)esp_wifi_clear_ap_list();
+        return gs232b_sta_error(error);
+    }
+    uint16_t found = 0;
+    error = esp_wifi_scan_get_ap_num(&found);
+    size_t stored = 0;
+    for (uint16_t i = 0; error == ESP_OK && i < found; ++i) {
+        wifi_ap_record_t record = {0};
+        error = esp_wifi_scan_get_ap_record(&record);
+        if (error != ESP_OK) break;
+        if (!scan_ssid_valid(&record)) continue;
+        if (stored == capacity) {
+            *truncated = true;
+            if (record.rssi <= aps[stored - 1U].rssi) continue;
+        }
+        size_t at = stored == capacity ? capacity - 1U : stored++;
+        while (at != 0 && aps[at - 1U].rssi < record.rssi) {
+            aps[at] = aps[at - 1U];
+            --at;
+        }
+        aps[at] = (gs232b_provisioning_ap_t){.rssi = record.rssi, .auth = record.authmode};
+        memcpy(aps[at].ssid, record.ssid,
+            strnlen((const char *)record.ssid, sizeof(record.ssid)));
+    }
+    /* NOTE: 逐条取 SDK 结果，避免在管理任务栈上分配大型 wifi_ap_record_t 数组；任何退出都清理余项。 */
+    const esp_err_t cleared = esp_wifi_clear_ap_list();
+    if (error == ESP_OK) error = cleared;
+    if (error != ESP_OK) { *truncated = false; return gs232b_sta_error(error); }
+    *count = stored;
+    return GS232B_OK;
 }

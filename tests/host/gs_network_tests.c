@@ -5,6 +5,8 @@
 
 bool network_validation_tests(void);
 bool network_lifecycle_tests(void);
+bool network_ipv4_tests(void);
+bool network_scan_tests(void);
 
 static gs232b_network_config_t stored_config(const gs232b_net_config_t *config,
     uint32_t confirmed_trial_id)
@@ -369,6 +371,7 @@ int main(void)
         !test_apply_failure_and_persistence_boundaries() ||
         !test_motion_sequence_calibration_gate() ||
         !test_restart_discards_trial_and_rejects_old_id() ||
-        !network_validation_tests() || !network_lifecycle_tests()) return 1;
+        !network_validation_tests() || !network_lifecycle_tests() ||
+        !network_ipv4_tests() || !network_scan_tests()) return 1;
     return 0;
 }

@@ -96,6 +96,13 @@ void gs232b_sta_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
             adapter->state.connected = true;
             adapter->state.state = GS232B_WIFI_STA_DHCP_WAIT;
             adapter->waiting_since_us = (gs232b_time_us_t)esp_timer_get_time();
+            if (adapter->configured.mode == GS232B_WIFI_STA_STATIC) {
+                ip_event_got_ip_t event = {.esp_netif = adapter->netif};
+                const esp_err_t error = esp_netif_get_ip_info(adapter->netif, &event.ip_info);
+                if (error == ESP_OK) got_ip(adapter, &event);
+                else gs232b_sta_retry(adapter, GS232B_WIFI_STA_FAILURE_DRIVER,
+                    gs232b_sta_error(error), error, 0);
+            }
         } else if (id == WIFI_EVENT_STA_DISCONNECTED && data != NULL) {
             const wifi_event_sta_disconnected_t *event = data;
             gs232b_sta_retry(adapter, failure_for(event->reason), GS232B_ERROR_IO, ESP_OK, event->reason);

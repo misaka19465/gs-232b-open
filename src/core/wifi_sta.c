@@ -1,4 +1,5 @@
 #include "gs232b/wifi_sta.h"
+#include "gs232b/ethernet.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -30,11 +31,20 @@ bool gs232b_wifi_sta_config_valid(const gs232b_wifi_sta_config_t *config)
 {
     if (config == NULL || memchr(config->ssid, 0, sizeof(config->ssid)) == NULL ||
         memchr(config->password, 0, sizeof(config->password)) == NULL) { return false; }
+    if (config->mode != GS232B_WIFI_STA_DHCP && config->mode != GS232B_WIFI_STA_STATIC) return false;
+    if (config->mode == GS232B_WIFI_STA_STATIC) {
+        const gs232b_ethernet_config_t ip = {.mode = GS232B_ETHERNET_STATIC,
+            .ipv4 = {.address = config->ipv4.address, .netmask = config->ipv4.netmask,
+                .gateway = config->ipv4.gateway}};
+        if (!gs232b_ethernet_config_valid(&ip)) return false;
+    }
     const size_t ssid = strlen(config->ssid), password = strlen(config->password);
     if (ssid == 0 && password == 0) { return !config->enabled; }
-    if (ssid == 0 || !utf8((const unsigned char *)config->ssid, ssid) || password < 8) {
+    if (ssid == 0 || !utf8((const unsigned char *)config->ssid, ssid)) {
         return false;
     }
+    if (password == 0) return true;
+    if (password < 8) return false;
     if (password < 64) {
         for (size_t i = 0; i < password; ++i) {
             const unsigned char c = (unsigned char)config->password[i];

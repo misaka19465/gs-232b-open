@@ -13,3 +13,10 @@
 /.vscode/c_cpp_properties.json
 /.vscode/launch.json
 /.vscode/ipch/
+
+# Web UI build and browser test dependencies
+/node_modules/
+/src/web/provisioning.html
+/src/web/provisioning.html.gz
+/playwright-report/
+/test-results/

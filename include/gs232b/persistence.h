@@ -8,6 +8,7 @@
 #include "gs232b/coordinates.h"
 #include "gs232b/ethernet.h"
 #include "gs232b/ports.h"
+#include "gs232b/wifi_sta.h"
 
 #define GS232B_PERSISTENCE_RECORD_FORMAT_VERSION 1U
 #define GS232B_PERSISTENCE_MAX_PAYLOAD_SIZE 512U
@@ -17,7 +18,7 @@
     (GS232B_PERSISTENCE_RECORD_HEADER_SIZE + GS232B_PERSISTENCE_MAX_PAYLOAD_SIZE + \
      GS232B_PERSISTENCE_RECORD_CHECKSUM_SIZE)
 #define GS232B_PERSISTENCE_SCHEMA_DISPLAY 1U
-#define GS232B_PERSISTENCE_SCHEMA_NETWORK 2U
+#define GS232B_PERSISTENCE_SCHEMA_NETWORK 3U
 #define GS232B_PERSISTENCE_SCHEMA_CONFIG_META 1U
 #define GS232B_NETWORK_SSID_MAX 32U
 #define GS232B_NETWORK_PASSWORD_MAX 64U
@@ -41,6 +42,8 @@ typedef struct {
     uint8_t password_length;
     char password[GS232B_NETWORK_PASSWORD_MAX + 1U];
     uint32_t last_confirmed_trial_id;
+    gs232b_wifi_sta_mode_t wifi_mode;
+    gs232b_wifi_sta_address_t wifi_ipv4;
 } gs232b_network_config_t;
 
 typedef struct {

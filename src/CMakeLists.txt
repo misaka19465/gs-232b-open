@@ -1,3 +1,5 @@
+include("${CMAKE_CURRENT_LIST_DIR}/../scripts/ensure_web.cmake")
+
 idf_component_register(
     SRCS "app_main.c" "core/types.c" "core/ports.c" "core/line_parser.c"
          "core/extension.c" "core/extension_json.c" "core/gs_extensions.c"
@@ -10,7 +12,7 @@ idf_component_register(
          "core/command_sequence.c" "core/command_calibration.c"
          "core/uart_baud.c" "core/uart_baud_store.c"
          "core/ethernet.c" "platform/esp_ethernet.c"
-         "core/wifi_sta.c" "platform/esp_wifi_sta.c"
+         "core/wifi_sta.c" "core/provisioning.c" "core/provisioning_scan.c" "platform/esp_wifi_sta.c"
          "platform/esp_wifi_sta_driver.c" "platform/esp_wifi_sta_events.c"
          "platform/esp_ethernet_driver.c" "platform/esp_ethernet_events.c"
          "core/gs_dispatcher.c" "core/gs_commands.c" "core/gs_replies.c"
@@ -19,7 +21,9 @@ idf_component_register(
          "platform/esp_ledc.c" "platform/esp_uart.c" "platform/esp_uart_rx.c"
          "platform/esp_uart_capture.c" "platform/esp_uart_boot.c"
          "platform/esp_ws.c" "platform/esp_ws_rx.c" "platform/esp_ws_tx.c"
+         "platform/provisioning_page.c"
     INCLUDE_DIRS "." "../include"
+    EMBED_FILES "web/provisioning.html.gz"
     REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_driver_uart esp_eth esp_timer esp_adc
              nvs_flash esp_wifi w5500 esp_driver_rmt esp_netif esp_event lwip esp_hw_support
              esp_http_server

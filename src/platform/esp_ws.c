@@ -108,6 +108,13 @@ gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t 
             .ws_post_handshake_cb = gs232b_ws_post_handshake
         };
         error = httpd_register_uri_handler(adapter->server, &uri);
+        if (error == ESP_OK) {
+            const httpd_uri_t page = {
+                .uri = "/", .method = HTTP_GET,
+                .handler = gs232b_provisioning_page, .user_ctx = adapter
+            };
+            error = httpd_register_uri_handler(adapter->server, &page);
+        }
     }
     if (error != ESP_OK) {
         const gs232b_error_t cleanup = gs232b_esp_ws_close(adapter);
@@ -121,7 +128,8 @@ gs232b_error_t gs232b_esp_ws_interface(gs232b_esp_ws_t *adapter,
     gs232b_transport_t transport, uint32_t address, uint64_t epoch, const char *if_name)
 {
     if (adapter == NULL || epoch == 0 ||
-        (transport != GS232B_TRANSPORT_ETHERNET_WS && transport != GS232B_TRANSPORT_WIFI_WS)) {
+        (transport != GS232B_TRANSPORT_ETHERNET_WS && transport != GS232B_TRANSPORT_WIFI_WS &&
+         transport != GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS)) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     gs232b_ws_interface_t next = {.address = address, .epoch = epoch};

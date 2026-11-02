@@ -2,6 +2,7 @@
 #define GS232B_ESP_WIFI_STA_H
 
 #include "gs232b/wifi_sta.h"
+#include "gs232b/provisioning.h"
 
 #define GS232B_ESP_WIFI_STA_ROUTE_PRIORITY 100
 
@@ -24,18 +25,21 @@ typedef struct {
     QueueHandle_t requests, results;
     TaskHandle_t worker;
     esp_netif_t *netif;
+    esp_netif_t *ap_netif;
+    gs232b_provisioning_ap_config_t ap_config;
     esp_event_handler_instance_t wifi_handler, ip_handler, fence_handler;
     uint64_t fence_serial;
     unsigned job, closing;
-    bool initialized, start_attempted, defaults_attached, accepting_events, opened;
+    bool initialized, start_attempted, defaults_attached, ap_defaults_attached;
+    bool ap_requested, ap_started, accepting_events, opened;
     atomic_bool cancelled;
 } gs232b_esp_wifi_sta_t;
 
 /**
  * @brief 建立异步 STA 服务；NULL config 禁用且无凭据。成功后持续调用 service。
  * @param adapter 清零的独占实例，寿命覆盖 close 完成。
- * @note 独占 Wi-Fi 驱动；不与其他 Wi-Fi/SoftAP 管理器共用，不创建 AP。
- *       复用全局 netif/事件循环，close 不删除它们；凭据仅应用到 RAM，不读写 NVS。
+ * @note 独占统一 Wi-Fi 驱动所有权；STA 与配网 SoftAP 共用本实例，不能由其他 owner 控制。
+ *       复用全局事件循环，close 不删除它；凭据仅应用到 RAM，不直接读写 NVS。
  */
 gs232b_error_t gs232b_esp_wifi_sta_open(gs232b_esp_wifi_sta_t *adapter,
                                       const gs232b_wifi_sta_config_t *config);
@@ -51,5 +55,16 @@ gs232b_error_t gs232b_esp_wifi_sta_snapshot(gs232b_esp_wifi_sta_t *adapter,
                                           gs232b_wifi_sta_snapshot_t *snapshot);
 /** @brief 异步释放本 STA；WOULD_BLOCK 时继续调用，失败保留资源可重试，成功后才可释放实例。 */
 gs232b_error_t gs232b_esp_wifi_sta_close(gs232b_esp_wifi_sta_t *adapter);
+
+/** @brief Queue AP start on the same Wi-Fi owner; the AP uses the supplied static subnet. */
+gs232b_error_t gs232b_esp_wifi_sta_ap_start(gs232b_esp_wifi_sta_t *adapter,
+    const gs232b_provisioning_ap_config_t *config);
+/** @brief Queue AP stop without clearing STA credentials, trial state, or recovery state. */
+gs232b_error_t gs232b_esp_wifi_sta_ap_stop(gs232b_esp_wifi_sta_t *adapter);
+/** @brief Build a provisioning AP port backed by this unified AP+STA adapter. */
+gs232b_provisioning_ap_port_t gs232b_esp_wifi_sta_ap_port(gs232b_esp_wifi_sta_t *adapter);
+/** @brief 复制最多 capacity 个有效 UTF-8 AP，逐条释放 SDK 扫描结果，truncated 表示还有 AP。 */
+gs232b_error_t gs232b_esp_wifi_sta_ap_scan(gs232b_esp_wifi_sta_t *adapter,
+    gs232b_provisioning_ap_t *aps, size_t capacity, size_t *count, bool *truncated);
 #endif
 #endif

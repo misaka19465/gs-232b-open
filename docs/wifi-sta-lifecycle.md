@@ -1,26 +1,31 @@
 # Wi-Fi STA 生命周期
 
-`gs232b_esp_wifi_sta_t` 提供独立的 STA DHCP netif、RAM 凭据应用、异步 SDK 生命周期、
-有界指数退避和脱敏状态。入口见 [`esp_wifi_sta.h`](../include/gs232b/esp_wifi_sta.h)，
-配置/状态契约见 [`wifi_sta.h`](../include/gs232b/wifi_sta.h)。`app_main` 仍是构建基线；
-本模块供后续网络管理任务接入，不在此启动应用会话、配置事务或 SoftAP。
+`gs232b_esp_wifi_sta_t` 提供独立的 STA DHCP/静态 IPv4 netif、RAM 凭据应用、异步 SDK
+生命周期、有界指数退避和脱敏状态。入口见 [`esp_wifi_sta.h`](../include/gs232b/esp_wifi_sta.h)，
+配置/状态契约见 [`wifi_sta.h`](../include/gs232b/wifi_sta.h)。同一无线电 owner 也管理配网
+SoftAP；应用和 dispatcher 负责持久化及连接试运行事务。
 
 ## 配置与凭据
 
 - `open(adapter, config)` 接纳完整配置；NULL 表示禁用且无凭据。
-- SSID 为 1–32 个 UTF-8 字节；密码为 8–63 字节口令，或 64 位十六进制 PSK。
-  拒绝未终止字符串、畸形 UTF-8、空密码、短密码及非十六进制的 64 字节密码。
-- 只使用 `WIFI_MODE_STA` 和 WPA2 安全阈值；不把空密码解释成开放网络，也不创建 AP。
+- SSID 为 1–32 个 UTF-8 字节；非空密码为 8–63 字节口令或 64 位十六进制 PSK，空密码表示
+  开放网络。拒绝未终止字符串、畸形 UTF-8、短密码及非十六进制的 64 字节密码。
+- WPA2 凭据使用 `WIFI_MODE_STA` 和 WPA2 安全阈值；开放网络使用 `WIFI_AUTH_OPEN`。
+  配网 SoftAP 由同一 owner 以 `WIFI_MODE_APSTA` 管理。
+- `mode=static` 时关闭 STA DHCP 并应用独立 IPv4 地址、掩码和可选网关；静态模式不设 DNS。
+  `mode=dhcp` 使用 DHCP，动态租约可报告 DNS。Ethernet 地址保持独立。
 - `esp_wifi_init` 关闭 Wi-Fi NVS，`esp_wifi_set_storage(WIFI_STORAGE_RAM)` 先于
   `set_config`。重连、禁用及失败均不擦除保存的凭据，不调用 restore 或 NVS 擦除。
 - `configure` 应用完整候选；`set_enabled(false)` 保留原 SSID/密码，随后可直接重新启用。
-  配置存储、已确认/试运行/回滚由上层负责；本模块不引入新的持久化格式。
+  配置存储、已确认/试运行/回滚由上层负责；网络 schema 3 持久化 Wi-Fi IPv4，旧 schema
+  1/2 读取时默认 STA DHCP。
 - 快照仅含 SSID 与 `password_set`，不含密码；模块不打印凭据或 SDK 配置对象。
 
 ## 状态与重试
 
 状态区分 `DISABLED / STARTING / CONNECTING / DHCP_WAIT / READY / RETRY_WAIT / ERROR`。
-关联成功只进入 DHCP_WAIT，收到属于本 netif、且与当前实际租约一致的 GOT_IP 才进入 READY。
+DHCP 关联成功后等待本 netif 的有效 GOT_IP；静态模式在关联后读取 netif IPv4，校验成功后进入
+READY。
 快照包含独立的 MAC、IP、掩码、网关、DNS、关联/IPv4 有效性和启用状态。
 
 失败原因区分认证、找不到 AP、掉线、连接超时、DHCP 超时和 SDK 错误；同时保留原始
@@ -50,8 +55,8 @@ LOST_IP 到达时若当前 netif 已有租约，则忽略旧通知。
 4. `close` 异步取消重试并释放 STA；返回 WOULD_BLOCK 时继续调用，其他错误保留实例可重试。
    成功后才可释放实例；失败的 open 若仍保留 `opened`，同样必须 close。
 
-模块独占 Wi-Fi 驱动，并拒绝同时打开第二个 STA 实例；当前不能与另一个 Wi-Fi/SoftAP
-管理器共用。未来 AP+STA 配网须扩展统一无线电所有者，不能独立调用另一个管理器的 stop。
+模块独占 Wi-Fi 驱动，并拒绝同时打开第二个实例。STA 和配网 SoftAP 共用此统一无线电
+owner；不能从其他管理器启动或停止其中一个接口。
 
 STA key 为 `GS232B_STA`，路由优先级 100，低于本项目 Ethernet 的 150。
 不引用 Ethernet 生命周期，不停用其驱动、不触及 W5500/SPI/复位或删除全局事件循环。

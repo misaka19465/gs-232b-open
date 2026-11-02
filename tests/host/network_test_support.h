@@ -74,7 +74,9 @@ static inline bool response_contains(gs_fixture_t *fixture, size_t session,
     const char *line, const char *expected)
 {
     CHECK(gs_feed(fixture, session, line) == GS232B_OK);
-    CHECK(gs232b_dispatcher_tick(&fixture->dispatcher) == GS232B_OK);
+    const gs232b_error_t tick_error = gs232b_dispatcher_tick(&fixture->dispatcher);
+    if (tick_error != GS232B_OK) fprintf(stderr, "dispatcher tick failed: %s\n", gs232b_error_name(tick_error));
+    CHECK(tick_error == GS232B_OK);
     uint8_t bytes[4096];
     size_t size;
     CHECK(gs232b_fake_sessions_take_tx(&fixture->io, fixture->sessions[session],

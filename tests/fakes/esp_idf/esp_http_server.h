@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include "esp_err.h"
 
 typedef void *httpd_handle_t;
@@ -60,4 +61,7 @@ esp_err_t httpd_sess_set_send_override(httpd_handle_t server, int fd, httpd_send
 esp_err_t httpd_ws_recv_frame_part(httpd_req_t *request, httpd_ws_frame_t *frame, size_t max_len);
 esp_err_t httpd_ws_send_frame_async(httpd_handle_t server, int fd, httpd_ws_frame_t *frame);
 esp_err_t httpd_queue_work(httpd_handle_t server, httpd_work_fn_t work, void *ctx);
+esp_err_t httpd_resp_set_type(httpd_req_t *, const char *);
+esp_err_t httpd_resp_set_hdr(httpd_req_t *, const char *, const char *);
+esp_err_t httpd_resp_send(httpd_req_t *, const char *, ssize_t);
 #endif

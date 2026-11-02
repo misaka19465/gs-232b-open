@@ -21,5 +21,6 @@ bool gs232b_ws_control(gs232b_ws_client_t *client, httpd_ws_type_t type,
                         const uint8_t *bytes, size_t size);
 /** @brief HTTPD 专用：尽力发送 Close 后标记关闭，不等待网络。 */
 void gs232b_ws_fail(gs232b_ws_client_t *client, uint16_t code);
+esp_err_t gs232b_provisioning_page(httpd_req_t *request);
 
 #endif

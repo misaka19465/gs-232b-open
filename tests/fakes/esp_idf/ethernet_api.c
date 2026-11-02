@@ -331,14 +331,17 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *config)
     if (call(ETH_FAKE_NETIF) != ESP_OK) { return NULL; }
     esp_netif_t *netif = calloc(1, sizeof(*netif));
     assert(netif != NULL && (config->stack == ESP_NETIF_NETSTACK_DEFAULT_ETH ||
-        config->stack == ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA));
+        config->stack == ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA ||
+        config->stack == ESP_NETIF_NETSTACK_DEFAULT_WIFI_AP));
     netif->flags = config->base->flags;
     assert(pthread_mutex_lock(&lock) == 0);
     if (config->stack == ESP_NETIF_NETSTACK_DEFAULT_ETH) {
         status.route_prio = config->base->route_prio;
-    } else {
+    } else if (config->stack == ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA) {
         assert(config->base->route_prio == GS232B_ESP_WIFI_STA_ROUTE_PRIORITY &&
             strcmp(config->base->if_key, "GS232B_STA") == 0);
+    } else {
+        assert(config->base->route_prio == 10 && strcmp(config->base->if_key, "GS232B_AP") == 0);
     }
     ++status.live_netifs;
     assert(pthread_mutex_unlock(&lock) == 0);
@@ -427,7 +430,7 @@ esp_err_t esp_netif_set_ip_info(esp_netif_t *netif, const esp_netif_ip_info_t *i
 {
     esp_err_t error = call(ETH_FAKE_SET_IP);
     if (error != ESP_OK) { return error; }
-    assert(netif->dhcp == ESP_NETIF_DHCP_STOPPED);
+    assert(netif->dhcp == ESP_NETIF_DHCP_STOPPED || !(netif->flags & ESP_NETIF_DHCP_CLIENT));
     netif->ip = *ip;
     return ESP_OK;
 }

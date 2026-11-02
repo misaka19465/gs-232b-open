@@ -1,0 +1,17 @@
+{
+  "name": "gs232b-provisioning-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "test:web": "npm run build:web && playwright test"
+  },
+  "dependencies": {
+    "@lit/localize": "0.12.2",
+    "mdui": "2.1.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "esbuild": "0.28.2"
+  }
+}

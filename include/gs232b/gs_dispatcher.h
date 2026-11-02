@@ -5,6 +5,7 @@
 #include "gs232b/persistence.h"
 #include "gs232b/extension.h"
 #include "gs232b/network_config.h"
+#include "gs232b/provisioning.h"
 
 #define GS232B_DISPATCHER_REPLIES_PER_SESSION 16U
 
@@ -37,6 +38,7 @@ typedef struct {
     gs232b_config_transaction_t network_config;
     gs232b_net_status_port_t network_status;
     gs232b_net_apply_port_t network_apply;
+    gs232b_provisioning_t provisioning;
     gs232b_dispatcher_session_t sessions[GS232B_CONTROL_MAX_SESSIONS];
     gs232b_session_key_t watchdog_session;
     gs232b_time_us_t watchdog_timeout_us;
@@ -71,6 +73,14 @@ gs232b_error_t gs232b_dispatcher_network_configure(gs232b_dispatcher_t *dispatch
 /** @brief 设置完整配置应用端口；只允许在任何网络管理会话打开前调用。 */
 gs232b_error_t gs232b_dispatcher_network_apply_configure(gs232b_dispatcher_t *dispatcher,
     gs232b_net_apply_port_t apply);
+
+/**
+ * @brief Attach the buttonless SoftAP port and its independent AP identity.
+ * @note Call before network_configure when possible. The API is also valid after
+ *       dispatcher init and before the first network record is loaded.
+ */
+gs232b_error_t gs232b_dispatcher_provisioning_configure(gs232b_dispatcher_t *dispatcher,
+    gs232b_provisioning_ap_port_t ap_port, const uint8_t mac[6]);
 
 /**
  * @brief 协议入口就绪后打开会话，只向新会话发送一次 Connect OK 加 CRLF。

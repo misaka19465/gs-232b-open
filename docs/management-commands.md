@@ -32,6 +32,8 @@ LAN 查询及 GS 运动面向可信局域网；网络管理 token 和 AP 密码�
 | 请求 | 用途 |
 | --- | --- |
 | `!SYS INFO` | 固件、板型、轴能力、schema 与入口可用性 |
+| `!ROTOR GET` | 已选型号 ID、当前生效 ID、两者轴能力与是否需重启 |
+| `!ROTOR SET {"model_id":5}` | 保存型号 ID；全停后设置，重启后切换配置 |
 | `!OWNER GET` | 控制者、占用原因、运动/序列/交互状态；无人控制时 owner 为 null |
 | `!OWNER TAKE` / `!OWNER RELEASE` | 空闲时申请 / 当前控制者在已知全停且无待运行任务时释放 |
 | `!MOTION STATUS` | 两轴角度、反馈、方向、目标、限位、故障及运动就绪状态 |
@@ -53,6 +55,50 @@ LAN 查询及 GS 运动面向可信局域网；网络管理 token 和 AP 密码�
 | `!PROV SCAN` | 扫描附近网络；后续页使用 scan_id/cursor |
 | `!PROV STOP` | 关闭 AP；活动或待回滚 trial 时返回 CONFLICT |
 | `!NET RESET {"confirm":"NETWORK_ONLY"}` | UART 仅重置网络配置，见下文 |
+
+### 旋转器型号
+
+型号设置保存在独立记录域，与网络、零点、显示和管理认证互不覆盖；缺少型号记录时默认为 ID 1。ROTOR SET 只保存选择，不立即改动运动核心；成功响应中的 `restart_required` 为 true 时，重启设备后新型号生效。设置要求输出已知全停、无运行/待运行序列、上传或校准。UART 可直接设置；ETH/STA 必须启用 ADMIN 并认证当前会话；SoftAP 配网会话不可读取或更改型号。GET 为只读，不授予运动控制权。
+
+代码和命令只传递数字 ID。下表的名称供人工查阅；每个 ID 在固件中均有独立的 `gs232b_motion_config_t`，目前配置仅按轴能力区别，零点仍为全局存储。
+
+| ID | 旋转器 | 方位 | 仰角 |
+| ---: | --- | :---: | :---: |
+| 1（默认） | G-5500 | 是 | 是 |
+| 2 | G-5400B | 是 | 是 |
+| 3 | G-5600B | 是 | 是 |
+| 4 | G-5500DC | 是 | 是 |
+| 5 | G-400 | 是 | 否 |
+| 6 | G-500A | 否 | 是 |
+| 7 | G-550 | 否 | 是 |
+| 8 | G-800DXA | 是 | 否 |
+| 9 | G-1000DXA | 是 | 否 |
+| 10 | G-2800DXA | 是 | 否 |
+| 11 | G-800DXC | 是 | 否 |
+| 12 | G-1000DXC | 是 | 否 |
+| 13 | G-2800DXC | 是 | 否 |
+| 14 | SDX 系列 | 是 | 否 |
+| 15 | G-400 + G-500A | 是 | 是 |
+| 16 | G-400 + G-550 | 是 | 是 |
+
+GET 和 SET 成功响应使用相同字段：`model_id` 为已保存选择（无记录时为默认值），`active_model_id` 为本次启动加载的型号，`capabilities` 为当前运行轴能力，`configured_capabilities` 为已选型号的轴能力。再次设置同一已保存 ID 不重复写入；改回当前生效 ID 可取消待重启的型号变更。
+
+例如从默认双轴配置保存方位单轴型号，各行追加 CR：
+
+```text
+!ROTOR SET {"model_id":5}
+!ROTOR GET
+```
+
+响应正文 `data` 为：
+
+```json
+{"model_id":5,"active_model_id":1,"capabilities":{"azimuth":true,"elevation":true},"configured_capabilities":{"azimuth":true,"elevation":false},"restart_required":true}
+```
+
+重启后 `active_model_id` 变为 5、`capabilities.elevation` 为 false，`restart_required` 为 false。未知 ID、非整数及未知 JSON 字段返回 INVALID_ARGUMENT；忙时返回 BUSY。写入失败保留旧选择；启动读取优先恢复上一有效记录，所有记录均无效时保持全停并报告启动失败，不把损坏记录当作出厂默认。
+
+G-500A/G-550 纯仰角配置可使用 U/D、B、E、S、O2；R/L、X1～X4、C/C2、M/W、O、F/F2 返回错误，A/S 停止及帮助、序号查询仍可用。纯方位配置继续沿用 GS 协议中禁用仰角时的既有规则。各型号共用零点和显示设置，型号切换不重新校准；更换实物后应重新检查对应轴零点。
 
 ### 控制权、故障与看门狗
 

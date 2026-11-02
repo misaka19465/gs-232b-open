@@ -137,16 +137,13 @@ static inline bool fixture_init(app_fixture_t *f, bool zero)
 
 static inline bool start(app_fixture_t *f)
 {
-    gs232b_motion_config_t config;
-    gs232b_time_us_t reversal;
-    gs232b_app_board_config(&config, &reversal);
     const gs232b_app_platform_t platform = {.ctx = f,
         .clock = {&f->spi, gs232b_fake_spi_bus_now}, .io = gs232b_fake_sessions_port(&f->sessions),
         .outputs_open = outputs_open, .store_open = store_open, .adc_open = adc_open,
         .uart_open = uart_open, .uart_boot = uart_boot, .uart_attach = uart_attach,
         .uart_service = uart_service, .network_bind = network_bind,
         .network_start = network_start, .network_service = network_service};
-    return gs232b_app_start(&f->app, platform, &config, reversal) == GS232B_OK;
+    return gs232b_app_start(&f->app, platform) == GS232B_OK;
 }
 
 static inline bool boot(app_fixture_t *f)

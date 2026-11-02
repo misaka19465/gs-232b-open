@@ -414,6 +414,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              calibration_tests calibration_lifecycle_tests
                              gs_commands_tests gs_sessions_tests gs_extensions_tests gs_network_tests
                              gs_management_tests gs_admin_tests gs_reset_tests gs_calibration_tests
+                             rotor_config_tests gs_rotor_tests app_rotor_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
                              esp_uart_capture_tests transport_fault_tests esp_ws_tests app_startup_tests
                              esp_store_worker_tests concurrency_regression_tests)
@@ -428,6 +429,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/persistence.c
         ../../src/core/output_manager.c
         ../../src/core/motion.c
+        ../../src/core/rotor_config.c ../../src/core/rotor_store.c ../../src/core/gs_rotor.c
         ../../src/core/speed.c
         ../../src/core/motion_control.c
         ../../src/core/motion_feedback.c
@@ -456,8 +458,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
     target_compile_definitions(${motion_test} PRIVATE GS232B_HOST_CRYPTO)
     target_link_libraries(${motion_test} PRIVATE OpenSSL::Crypto)
-    if(motion_test STREQUAL "app_startup_tests")
-        target_sources(${motion_test} PRIVATE ../../src/app/app.c ../../src/app/board_config.c
+    if(motion_test STREQUAL "app_startup_tests" OR motion_test STREQUAL "app_rotor_tests")
+        target_sources(${motion_test} PRIVATE ../../src/app/app.c
             ../../src/platform/shared_spi.c ../../src/platform/w5500_reset.c ../fakes/spi_bus.c)
         target_link_libraries(${motion_test} PRIVATE Threads::Threads)
     endif()

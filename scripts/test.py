@@ -73,7 +73,8 @@ def check_application_link() -> None:
     )
     defined = {line.split()[-1] for line in symbols.splitlines() if line.split()}
     required = {
-        "app_main", "gs232b_app_start", "gs232b_app_step", "gs232b_app_board_config",
+        "app_main", "gs232b_app_start", "gs232b_app_step", "gs232b_rotor_config",
+        "gs232b_rotor_load", "gs232b_rotor_save",
         "gs232b_dispatcher_init", "gs232b_motion_init", "gs232b_esp_shared_spi_open",
         "gs232b_esp_store_worker_open", "gs232b_esp_store_worker_port", "nvs_commit",
         "gs232b_esp_adc_capture", "esp_timer_start_periodic", "gs232b_esp_uart_service",

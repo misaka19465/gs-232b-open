@@ -1,13 +1,14 @@
 include("${CMAKE_CURRENT_LIST_DIR}/../scripts/ensure_web.cmake")
 
 idf_component_register(
-    SRCS "app_main.c" "app/app.c" "app/board_config.c" "app/esp_app.c" "app/esp_sampling.c"
+    SRCS "app_main.c" "app/app.c" "app/esp_app.c" "app/esp_sampling.c"
          "app/esp_network.c" "app/esp_network_service.c" "platform/esp_store_worker.c"
          "core/types.c" "core/ports.c" "core/line_parser.c"
          "core/extension.c" "core/extension_json.c" "core/gs_extensions.c" "core/gs_management.c" "core/gs_admin.c"
          "core/network_config.c" "core/network_fields.c" "core/network_replies.c" "core/gs_network.c"
          "core/response_encoder.c" "core/coordinates.c" "core/feedback.c"
          "core/persistence.c" "core/output_manager.c" "core/motion.c" "core/speed.c"
+         "core/rotor_config.c" "core/rotor_store.c" "core/gs_rotor.c"
          "core/motion_control.c" "core/motion_feedback.c" "platform/nvs_store.c"
          "core/command_control.c" "core/command_input.c" "core/command_dispatch.c"
          "core/position_parser.c" "core/sequence_store.c" "core/command_upload.c"

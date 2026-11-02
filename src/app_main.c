@@ -23,11 +23,8 @@ static void control(void *ctx)
 void app_main(void)
 {
     /* NOTE: 首个任务先执行安全锁存；任何 NVS、网络及采集初始化均在其后。 */
-    gs232b_motion_config_t config;
-    gs232b_time_us_t reversal_us;
-    gs232b_app_board_config(&config, &reversal_us);
     const gs232b_error_t error = gs232b_app_start(&runtime.app,
-        gs232b_esp_app_platform(&runtime), &config, reversal_us);
+        gs232b_esp_app_platform(&runtime));
     if (error != GS232B_OK) {
         return;
     }

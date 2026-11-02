@@ -62,6 +62,7 @@ static inline bool gs_init(gs_fixture_t *fixture, bool elevation)
     memset(fixture, 0, sizeof(*fixture));
     gs232b_motion_config_t config;
     gs232b_motion_sim_config(&config);
+    config.model_id = elevation ? 1U : 5U;
     config.axes[GS232B_AXIS_ELEVATION].enabled = elevation;
     CHECK(gs232b_motion_sim_init(&fixture->sim, &config, 0, WAIT_US) == GS232B_OK);
     gs232b_fake_store_init(&fixture->store);

@@ -6,6 +6,7 @@
 
 #define GS232B_APP_CONTROL_PERIOD_US UINT64_C(20000)
 #define GS232B_APP_SAMPLE_PERIOD_US UINT64_C(5000)
+#define GS232B_APP_REVERSAL_US UINT64_C(250000)
 
 typedef enum {
     GS232B_APP_COLD = 0,
@@ -58,11 +59,11 @@ struct gs232b_app {
     uint8_t requests[GS232B_LINE_STORAGE_BYTES];
 };
 
-/** @brief 取得板级运动参数；零点始终从独立存储域恢复。 */
-void gs232b_app_board_config(gs232b_motion_config_t *config, gs232b_time_us_t *reversal_us);
-/** @brief 启动唯一输出管理器，首先锁存 0x00/PWM=0，再非阻塞等待硬复位。 */
-gs232b_error_t gs232b_app_start(gs232b_app_t *app, gs232b_app_platform_t platform,
-    const gs232b_motion_config_t *config, gs232b_time_us_t reversal_us);
+/**
+ * @brief 首先锁存 0x00/PWM=0，再非阻塞等待硬复位，所有机型统一等待换向 250ms。
+ * @note 后续 step 在存储就绪后加载型号配置及独立轴零点，再初始化运动核心。
+ */
+gs232b_error_t gs232b_app_start(gs232b_app_t *app, gs232b_app_platform_t platform);
 /** @brief 串行推进启动或一轮运行；网络/ADC 失败降级，UART 不等待网络。 */
 gs232b_error_t gs232b_app_step(gs232b_app_t *app);
 /** @brief 复制启动诊断；缺零点、存储、ADC 和网络失败分别保留，不伪装就绪。 */

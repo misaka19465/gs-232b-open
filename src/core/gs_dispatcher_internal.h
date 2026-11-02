@@ -20,6 +20,8 @@ gs232b_error_t gs232b_network_register(gs232b_dispatcher_t *dispatcher);
 gs232b_error_t gs232b_management_register(gs232b_dispatcher_t *dispatcher);
 /** @brief 恢复管理认证材料并注册 ADMIN/SESSION AUTH。 */
 gs232b_error_t gs232b_admin_register(gs232b_dispatcher_t *dispatcher);
+/** @brief 恢复已保存的型号 ID 并注册重启生效的 ROTOR 命令，不重配运动核心。 */
+gs232b_error_t gs232b_rotor_register(gs232b_dispatcher_t *dispatcher);
 /** @brief 检查 AP 窗口及扩展白名单；管理权限不等于运动所有权。 */
 gs232b_error_t gs232b_management_access(gs232b_dispatcher_t *dispatcher,
     const gs232b_extension_request_t *request);

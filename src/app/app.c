@@ -24,10 +24,9 @@ static gs232b_error_t fail(gs232b_app_t *app, gs232b_error_t error)
     return error;
 }
 
-gs232b_error_t gs232b_app_start(gs232b_app_t *app, gs232b_app_platform_t platform,
-    const gs232b_motion_config_t *config, gs232b_time_us_t reversal_us)
+gs232b_error_t gs232b_app_start(gs232b_app_t *app, gs232b_app_platform_t platform)
 {
-    if (app == NULL || config == NULL || reversal_us == 0 ||
+    if (app == NULL ||
         platform.clock.now_us == NULL || platform.io.send == NULL || platform.io.close == NULL ||
         platform.outputs_open == NULL || platform.store_open == NULL || platform.adc_open == NULL ||
         platform.uart_open == NULL || platform.uart_boot == NULL || platform.uart_attach == NULL ||
@@ -37,11 +36,10 @@ gs232b_error_t gs232b_app_start(gs232b_app_t *app, gs232b_app_platform_t platfor
     }
     memset(app, 0, sizeof(*app));
     app->platform = platform;
-    app->config = *config;
     gs232b_error_t error = platform.outputs_open(platform.ctx, &app->bus);
     if (error != GS232B_OK) return fail(app, error);
     error = gs232b_output_manager_init(&app->outputs, platform.clock,
-        gs232b_shared_spi_output_driver(app->bus), reversal_us);
+        gs232b_shared_spi_output_driver(app->bus), GS232B_APP_REVERSAL_US);
     if (error != GS232B_OK) return fail(app, error);
     error = gs232b_w5500_reset_init(&app->startup_reset, &app->outputs, app->bus,
         (gs232b_w5500_lifecycle_t){NULL, no_driver, no_driver},
@@ -56,6 +54,12 @@ static gs232b_error_t initialize(gs232b_app_t *app)
 {
     gs232b_app_platform_t *p = &app->platform;
     app->status.store_error = p->store_open(p->ctx, &app->store);
+    uint16_t model_id = 0;
+    uint64_t revision = 0;
+    gs232b_error_t error = gs232b_rotor_load(&app->store, &model_id, &revision);
+    if (error != GS232B_OK) return fail(app, error);
+    error = gs232b_rotor_config(model_id, &app->config);
+    if (error != GS232B_OK) return fail(app, error);
     gs232b_sampler_t sampler = {0};
     app->status.adc_error = p->adc_open(p->ctx, &sampler);
     if (sampler.read == NULL) sampler = (gs232b_sampler_t){.read = missing_sample};
@@ -67,7 +71,7 @@ static gs232b_error_t initialize(gs232b_app_t *app)
         app->config.axes[i].zero_valid = app->status.zero_error[i] == GS232B_OK;
         app->config.axes[i].zero_uv = zero;
     }
-    gs232b_error_t error = gs232b_motion_init(&app->motion, &app->outputs, sampler, &app->config);
+    error = gs232b_motion_init(&app->motion, &app->outputs, sampler, &app->config);
     if (error != GS232B_OK) return fail(app, error);
     error = gs232b_dispatcher_init(&app->dispatcher, &app->motion, app->store,
         p->io, app->requests, sizeof(app->requests));

@@ -76,6 +76,7 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
     memset(dispatcher, 0, sizeof(*dispatcher));
     gs232b_extension_registry_init(&dispatcher->extensions);
     dispatcher->motion = motion;
+    dispatcher->active_model_id = motion->config.model_id;
     dispatcher->store = store;
     dispatcher->io = io;
     gs232b_error_t error = gs232b_persistence_display_load(&store, &dispatcher->display,
@@ -104,6 +105,7 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
         (gs232b_provisioning_ap_port_t){0}, NULL);
     if (error == GS232B_OK) error = gs232b_network_register(dispatcher);
     if (error == GS232B_OK) error = gs232b_management_register(dispatcher);
+    if (error == GS232B_OK) error = gs232b_rotor_register(dispatcher);
     dispatcher->initialized = error == GS232B_OK;
     return error;
 }

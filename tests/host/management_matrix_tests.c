@@ -31,6 +31,8 @@ static const command_case_t cases[] = {
     {"!SESSION WATCHDOG {\"timeout_ms\":1000}\r", "owner", 0, 2, false},
     {"!SESSION PING\r", "owner", 0, 2, false},
     {"!MOTION STATUS\r", NULL, 0, 2, false},
+    {"!ROTOR GET\r", NULL, 0, 2, false},
+    {"!ROTOR SET {\"model_id\":5}\r", NULL, 0, 1, false},
     {"!FAULT CLEAR\r", NULL, 0, 2, false}
 };
 

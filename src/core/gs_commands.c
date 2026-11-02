@@ -27,6 +27,11 @@ gs232b_error_t gs232b_gs_validate(void *ctx, const gs232b_control_request_t *req
     if (command == GS_COMMAND_UNKNOWN) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
+    if ((command == GS_COMMAND_R || command == GS_COMMAND_L ||
+         (command >= GS_COMMAND_X1 && command <= GS_COMMAND_X4)) &&
+        !dispatcher->motion->config.axes[GS232B_AXIS_AZIMUTH].enabled) {
+        return GS232B_ERROR_NOT_READY;
+    }
     if ((command == GS_COMMAND_U || command == GS_COMMAND_D) &&
         !dispatcher->motion->config.axes[GS232B_AXIS_ELEVATION].enabled) {
         return GS232B_ERROR_NOT_READY;

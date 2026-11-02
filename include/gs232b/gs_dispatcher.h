@@ -6,6 +6,7 @@
 #include "gs232b/extension.h"
 #include "gs232b/network_config.h"
 #include "gs232b/provisioning.h"
+#include "gs232b/rotor.h"
 
 #define GS232B_DISPATCHER_REPLIES_PER_SESSION 16U
 
@@ -36,6 +37,8 @@ typedef struct {
     gs232b_session_io_t io;
     gs232b_azimuth_display_settings_t display;
     uint64_t display_revision;
+    uint16_t rotor_model_id, active_model_id;
+    uint64_t rotor_revision;
     gs232b_config_transaction_t network_config;
     gs232b_net_status_port_t network_status;
     gs232b_net_apply_port_t network_apply;
@@ -63,7 +66,7 @@ typedef struct {
  * @param capacity 请求池字节数。
  * @note 所有入口和运动核心必须串行调用；回调不得重入。会话及输入必须经本门面，
  *       control 仅供只读快照。扩展经注册表验证及分派，独立输出单行 JSON。
- *       显示域加载失败会拒绝初始化；既有零点应由启动流程加载到 motion。
+ *       显示或型号域加载失败会拒绝初始化；既有零点和型号配置应由启动流程加载到 motion。
  */
 gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
     gs232b_motion_t *motion, gs232b_store_t store, gs232b_session_io_t io,

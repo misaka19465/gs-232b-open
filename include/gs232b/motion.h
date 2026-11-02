@@ -32,6 +32,7 @@ typedef struct {
 } gs232b_motion_axis_config_t;
 
 typedef struct {
+    uint16_t model_id; /* NOTE: 0 表示通用测试/自定义配置，型号配置使用持久化数字 ID。 */
     gs232b_motion_axis_config_t axes[GS232B_AXIS_COUNT];
     uint16_t azimuth_speed_permille;
     uint16_t azimuth_slow_speed_permille;

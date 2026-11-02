@@ -18,6 +18,8 @@ gs232b_error_t gs232b_eth_driver_quiesce(gs232b_esp_ethernet_t *adapter);
 gs232b_error_t gs232b_eth_driver_resume(gs232b_esp_ethernet_t *adapter);
 /** @brief 默认事件循环回调；只更新本接口的状态。 */
 void gs232b_eth_event(void *ctx, esp_event_base_t base, int32_t id, void *data);
+/** @brief 控制任务有界消费 SDK 事件；不会在网络生命周期工作未完成时访问 netif。 */
+void gs232b_eth_events_service(gs232b_esp_ethernet_t *adapter);
 /** @brief 默认循环屏障回调，数据为包含 adapter 和请求序号的值对象。 */
 void gs232b_eth_fence_event(void *ctx, esp_event_base_t base, int32_t id, void *data);
 

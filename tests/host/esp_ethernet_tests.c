@@ -74,6 +74,7 @@ static bool snapshot(fixture_t *f, gs232b_ethernet_snapshot_t *out)
     const uint64_t deadline = wall_ms() + 3000;
     gs232b_error_t result;
     do {
+        (void)gs232b_esp_ethernet_service(&f->eth);
         result = gs232b_esp_ethernet_snapshot(&f->eth, out);
         if (result == GS232B_ERROR_WOULD_BLOCK) { sched_yield(); }
     } while (result == GS232B_ERROR_WOULD_BLOCK && wall_ms() < deadline);
@@ -196,6 +197,7 @@ static bool test_dhcp_events_and_sessions(void)
     CHECK(snapshot(&f, &s) && !s.ipv4_valid && s.link_up && s.current.address == 0);
     CHECK(s.session_epoch == first + 4 && s.state == GS232B_ETHERNET_DHCP_WAIT);
     fake_eth_lease(&f.eth, changed);
+    CHECK(snapshot(&f, &s) && s.ipv4_valid);
     fake_eth_link(&f.eth, false);
     CHECK(snapshot(&f, &s) && !s.link_up && !s.ipv4_valid && !s.dhcp_running);
     CHECK(s.session_epoch == first + 5 && s.state == GS232B_ETHERNET_LINK_DOWN);
@@ -448,6 +450,7 @@ static bool test_session_epoch_exhaustion(void)
     CHECK(gs232b_esp_ethernet_recover(&f.eth) == GS232B_OK && settle(&f, true));
     fake_eth_link(&f.eth, true);
     fake_eth_lease(&f.eth, static_config.ipv4);
+    (void)gs232b_esp_ethernet_service(&f.eth);
     CHECK(xSemaphoreTake(f.eth.lock, 0) == pdPASS);
     f.eth.state.session_epoch = UINT64_MAX - 1;
     CHECK(xSemaphoreGive(f.eth.lock) == pdPASS);
@@ -501,6 +504,70 @@ static bool test_event_read_failure_and_close_retry(void)
     return true;
 }
 
+static bool test_callbacks_only_enqueue_and_overflow_invalidates(void)
+{
+    fixture_t f;
+    CHECK(fixture_init(&f, NULL));
+    CHECK(gs232b_esp_ethernet_recover(&f.eth) == GS232B_OK && settle(&f, true));
+    CHECK(xSemaphoreTake(f.eth.lock, 0) == pdPASS);
+    fake_eth_link(&f.eth, true);
+    fake_eth_lease(&f.eth, static_config.ipv4);
+    CHECK(!f.eth.state.link_up && !f.eth.state.ipv4_valid);
+    CHECK(uxQueueMessagesWaiting(f.eth.events) == 2);
+    CHECK(xSemaphoreGive(f.eth.lock) == pdPASS);
+    gs232b_ethernet_snapshot_t state;
+    CHECK(snapshot(&f, &state) && state.ipv4_valid);
+    const uint64_t epoch = state.session_epoch;
+    const unsigned reads = fake_eth_status().calls[ETH_FAKE_GET_IP];
+    CHECK(xSemaphoreTake(f.eth.lock, 0) == pdPASS);
+    for (unsigned i = 0; i <= GS232B_NETWORK_EVENT_CAPACITY; ++i) fake_eth_link(&f.eth, true);
+    CHECK(uxQueueMessagesWaiting(f.eth.events) == GS232B_NETWORK_EVENT_CAPACITY);
+    CHECK(atomic_load(&f.eth.event_lost));
+    CHECK(f.eth.state.ipv4_valid && fake_eth_status().calls[ETH_FAKE_GET_IP] == reads);
+    CHECK(xSemaphoreGive(f.eth.lock) == pdPASS);
+    CHECK(gs232b_esp_ethernet_service(&f.eth) == GS232B_ERROR_RESOURCE_EXHAUSTED);
+    CHECK(gs232b_esp_ethernet_snapshot(&f.eth, &state) == GS232B_OK);
+    CHECK(state.state == GS232B_ETHERNET_ERROR && !state.ipv4_valid && state.session_epoch > epoch);
+    for (unsigned i = 0; i < 4; ++i) (void)gs232b_esp_ethernet_service(&f.eth);
+    CHECK(gs232b_esp_ethernet_snapshot(&f.eth, &state) == GS232B_OK && !state.ipv4_valid);
+    CHECK(fixture_close(&f));
+    return true;
+}
+
+static gs232b_error_t boot_lifecycle(void *ctx)
+{
+    (void)ctx;
+    return GS232B_OK;
+}
+
+static bool test_adopts_completed_startup_reset(void)
+{
+    fake_eth_reset();
+    fixture_t f = {0};
+    CHECK(gs232b_fake_spi_bus_init(&f.spi, &f.bus));
+    CHECK(gs232b_output_manager_init(&f.outputs,
+        (gs232b_clock_t){&f.spi, gs232b_fake_spi_bus_now},
+        gs232b_shared_spi_output_driver(&f.bus), 100) == GS232B_OK);
+    gs232b_w5500_reset_t startup;
+    CHECK(gs232b_w5500_reset_init(&startup, &f.outputs, &f.bus,
+        (gs232b_w5500_lifecycle_t){NULL, boot_lifecycle, boot_lifecycle}, 1000, 10000) == GS232B_OK);
+    CHECK(gs232b_w5500_reset_begin(&startup) == GS232B_OK);
+    CHECK(gs232b_esp_ethernet_open_after_reset(&f.eth, &startup, NULL) == GS232B_ERROR_NOT_READY);
+    advance(&f, 1000);
+    CHECK(gs232b_w5500_reset_tick(&startup) == GS232B_OK);
+    advance(&f, 10000);
+    CHECK(gs232b_w5500_reset_tick(&startup) == GS232B_OK && startup.phase == GS232B_W5500_READY);
+    gs232b_fake_spi_bus_clear(&f.spi);
+    CHECK(gs232b_esp_ethernet_open_after_reset(&f.eth, &startup, NULL) == GS232B_OK);
+    CHECK(settle(&f, true));
+    CHECK(fake_eth_status().calls[ETH_FAKE_INSTALL] == 1);
+    CHECK(f.spi.latched == 0x10 && f.spi.pwm == 0);
+    for (size_t i = 0; i < f.spi.count; ++i)
+        CHECK(f.spi.trace[i].kind != SPI_LATCH_HIGH && f.spi.trace[i].kind != SPI_SHIFT_BYTE);
+    CHECK(fixture_close(&f));
+    return true;
+}
+
 int main(void)
 {
     if (!test_ipv4_validation() || !test_dhcp_events_and_sessions() ||
@@ -511,7 +578,9 @@ int main(void)
         !test_open_failures_and_nonblocking_control() ||
         !test_late_worker_completion_after_output_fault() ||
         !test_session_epoch_exhaustion() ||
-        !test_event_read_failure_and_close_retry()) { return 1; }
+        !test_event_read_failure_and_close_retry() ||
+        !test_callbacks_only_enqueue_and_overflow_invalidates() ||
+        !test_adopts_completed_startup_reset()) { return 1; }
     puts("W5500 Ethernet lifecycle, lease, static/DHCP and recovery tests passed");
     return 0;
 }

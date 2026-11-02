@@ -2,6 +2,7 @@ export async function mockDevice(page, options = {}) {
   const state = {
     commands: [], scans: 0, candidate: null, trial: null, connected: true,
     ready: true, runtimeSsid: null, fail: null, dropApply: false, scanId: 0,
+    scanPending: 0,
     aps: [
       { ssid: 'Radio House', rssi: -43, auth: 3 },
       { ssid: 'Workshop', rssi: -57, auth: 3 },
@@ -21,6 +22,11 @@ export async function mockDevice(page, options = {}) {
       }
       let data = {};
       if (command.startsWith('PROV SCAN')) {
+        if (command === 'PROV SCAN' && state.scanPending > 0) {
+          state.scanPending--;
+          ws.send(`!${JSON.stringify({ ok: false, error: 'WOULD_BLOCK' })}\r\n`);
+          return;
+        }
         let cursor = 0, scanId = state.scanId;
         if (command === 'PROV SCAN') {
           state.scans++; scanId = ++state.scanId;

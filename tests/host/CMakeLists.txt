@@ -188,19 +188,6 @@ foreach(spi_test IN ITEMS shared_spi_tests w5500_reset_tests)
     set_tests_properties(${spi_test} PROPERTIES TIMEOUT 15)
 endforeach()
 
-add_executable(app_main_smoke app_main_smoke.c ../../src/app_main.c)
-set_target_properties(app_main_smoke PROPERTIES
-    C_STANDARD 11
-    C_STANDARD_REQUIRED YES
-    C_EXTENSIONS NO
-)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(app_main_smoke PRIVATE -Wall -Wextra -Wpedantic -Werror)
-endif()
-
-add_test(NAME app_main_returns COMMAND app_main_smoke)
-set_tests_properties(app_main_returns PROPERTIES TIMEOUT 5)
-
 add_executable(provisioning_tests provisioning_tests.c ../../src/core/provisioning.c
     ../../src/core/network_config.c ../../src/core/wifi_sta.c ../../src/core/ethernet.c
     ../../src/core/persistence.c ../../src/core/ports.c ../../src/core/types.c
@@ -399,7 +386,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              gs_commands_tests gs_sessions_tests gs_extensions_tests gs_network_tests
                              gs_management_tests gs_admin_tests gs_reset_tests gs_calibration_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
-                             esp_uart_capture_tests transport_fault_tests esp_ws_tests)
+                             esp_uart_capture_tests transport_fault_tests esp_ws_tests app_startup_tests
+                             esp_store_worker_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -439,6 +427,19 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
     target_compile_definitions(${motion_test} PRIVATE GS232B_HOST_CRYPTO)
     target_link_libraries(${motion_test} PRIVATE OpenSSL::Crypto)
+    if(motion_test STREQUAL "app_startup_tests")
+        target_sources(${motion_test} PRIVATE ../../src/app/app.c ../../src/app/board_config.c
+            ../../src/platform/shared_spi.c ../../src/platform/w5500_reset.c ../fakes/spi_bus.c)
+        target_link_libraries(${motion_test} PRIVATE Threads::Threads)
+    endif()
+    if(motion_test STREQUAL "esp_store_worker_tests")
+        target_sources(${motion_test} PRIVATE ../../src/platform/esp_store_worker.c
+            ../../src/platform/shared_spi.c ../fakes/esp_idf/ethernet_api.c
+            ../fakes/esp_idf/ethernet_rtos.c)
+        target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf)
+        target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM _POSIX_C_SOURCE=200809L)
+        target_link_libraries(${motion_test} PRIVATE Threads::Threads)
+    endif()
     if(motion_test STREQUAL "gs_network_tests")
         target_sources(${motion_test} PRIVATE network_validation_tests.c network_lifecycle_tests.c
             network_ipv4_tests.c network_scan_tests.c)

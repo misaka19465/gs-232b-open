@@ -48,6 +48,16 @@ test('large scan results are fetched in cursor pages from one scan snapshot', as
   await expect(page.locator('#networks .network-row').nth(20)).toContainText('Network 21');
 });
 
+test('an asynchronous device scan keeps polling until its first page is ready', async ({ page }) => {
+  const state = await mockDevice(page, { scanPending: 2 });
+  await page.goto('/provisioning.html');
+  await expect(page.locator('#networks .network-row')).toHaveCount(4);
+  expect(state.scans).toBe(1);
+  expect(state.commands.filter(command => command === 'PROV SCAN')).toHaveLength(3);
+  await expect(page.locator('#scan-status')).toBeHidden();
+  await expect(page.locator('#refresh')).toBeEnabled();
+});
+
 test('a failed continuation keeps the previous complete list and allows refresh', async ({ page }) => {
   const state = await mockDevice(page);
   await page.goto('/provisioning.html');

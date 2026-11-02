@@ -1,6 +1,6 @@
 # ESP-IDF ADC 采样适配
 
-入口为 [`esp_adc.h`](../include/gs232b/esp_adc.h)，实现为 [`esp_adc.c`](../src/platform/esp_adc.c)，已加入 ESP32-C3 固件组件和 `esp_adc` 依赖。适配器提供采集入口与 `gs232b_sampler_t` 缓存端口；应用负责采集任务调度和启动顺序，`app_main` 仍是构建基线。
+入口为 [`esp_adc.h`](../include/gs232b/esp_adc.h)，实现为 [`esp_adc.c`](../src/platform/esp_adc.c)，已加入 ESP32-C3 固件组件和 `esp_adc` 依赖。适配器提供采集入口与 `gs232b_sampler_t` 缓存端口；应用组合层负责 5ms 采集任务和启动顺序；`app_main` 已启动统一控制任务。
 
 | 项目 | 配置 |
 | --- | --- |

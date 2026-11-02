@@ -10,8 +10,7 @@
 struct fake_queue {
     pthread_mutex_t lock;
     pthread_cond_t ready;
-    size_t size;
-    bool full;
+    size_t size, length, head, count;
     unsigned char bytes[];
 };
 struct fake_semaphore {
@@ -35,12 +34,13 @@ static bool wait_ready(pthread_cond_t *cond, pthread_mutex_t *lock, TickType_t t
 
 QueueHandle_t xQueueCreate(UBaseType_t length, UBaseType_t item_size)
 {
-    assert(length == 1);
+    assert(length != 0);
     if (!fake_eth_allocation()) { return NULL; }
-    QueueHandle_t queue = calloc(1, sizeof(*queue) + item_size);
+    QueueHandle_t queue = calloc(1, sizeof(*queue) + length * item_size);
     assert(queue != NULL && pthread_mutex_init(&queue->lock, NULL) == 0 &&
            pthread_cond_init(&queue->ready, NULL) == 0);
     queue->size = item_size;
+    queue->length = length;
     fake_eth_resource(1, 0, 0);
     return queue;
 }
@@ -48,14 +48,14 @@ QueueHandle_t xQueueCreate(UBaseType_t length, UBaseType_t item_size)
 BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t ticks)
 {
     assert(pthread_mutex_lock(&queue->lock) == 0);
-    while (queue->full) {
+    while (queue->count == queue->length) {
         if (!wait_ready(&queue->ready, &queue->lock, ticks)) {
             assert(pthread_mutex_unlock(&queue->lock) == 0);
             return pdFAIL;
         }
     }
-    memcpy(queue->bytes, item, queue->size);
-    queue->full = true;
+    memcpy(queue->bytes + ((queue->head + queue->count) % queue->length) * queue->size, item, queue->size);
+    ++queue->count;
     assert(pthread_cond_broadcast(&queue->ready) == 0);
     assert(pthread_mutex_unlock(&queue->lock) == 0);
     return pdPASS;
@@ -64,17 +64,46 @@ BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t ticks)
 BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t ticks)
 {
     assert(pthread_mutex_lock(&queue->lock) == 0);
-    while (!queue->full) {
+    while (queue->count == 0) {
         if (!wait_ready(&queue->ready, &queue->lock, ticks)) {
             assert(pthread_mutex_unlock(&queue->lock) == 0);
             return pdFAIL;
         }
     }
-    memcpy(item, queue->bytes, queue->size);
-    queue->full = false;
+    memcpy(item, queue->bytes + queue->head * queue->size, queue->size);
+    queue->head = (queue->head + 1U) % queue->length;
+    --queue->count;
     assert(pthread_cond_broadcast(&queue->ready) == 0);
     assert(pthread_mutex_unlock(&queue->lock) == 0);
     return pdPASS;
+}
+
+BaseType_t xQueueReset(QueueHandle_t queue)
+{
+    assert(pthread_mutex_lock(&queue->lock) == 0);
+    queue->head = queue->count = 0;
+    assert(pthread_cond_broadcast(&queue->ready) == 0);
+    assert(pthread_mutex_unlock(&queue->lock) == 0);
+    return pdPASS;
+}
+
+BaseType_t xQueueOverwrite(QueueHandle_t queue, const void *item)
+{
+    assert(queue->length == 1 && pthread_mutex_lock(&queue->lock) == 0);
+    memcpy(queue->bytes, item, queue->size);
+    queue->head = 0;
+    queue->count = 1;
+    assert(pthread_cond_broadcast(&queue->ready) == 0);
+    assert(pthread_mutex_unlock(&queue->lock) == 0);
+    return pdPASS;
+}
+
+UBaseType_t uxQueueMessagesWaiting(QueueHandle_t queue)
+{
+    assert(pthread_mutex_lock(&queue->lock) == 0);
+    UBaseType_t count = (UBaseType_t)queue->count;
+    assert(pthread_mutex_unlock(&queue->lock) == 0);
+    return count;
 }
 
 void vQueueDelete(QueueHandle_t queue)
@@ -142,8 +171,9 @@ static void *task_main(void *ctx)
 BaseType_t xTaskCreate(TaskFunction_t entry, const char *name, uint32_t stack_size,
     void *ctx, UBaseType_t priority, TaskHandle_t *task)
 {
-    assert((strcmp(name, "gs_eth") == 0 || strcmp(name, "gs_sta") == 0) &&
-           stack_size >= 4096 && priority == 3);
+    assert(stack_size >= 4096 &&
+        ((strcmp(name, "gs_store") == 0 && priority == 2) ||
+         ((strcmp(name, "gs_eth") == 0 || strcmp(name, "gs_sta") == 0) && priority == 3)));
     if (fake_eth_status().fail_task) { return pdFAIL; }
     *task = malloc(sizeof(**task));
     assert(*task != NULL);

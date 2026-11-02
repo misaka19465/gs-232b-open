@@ -6,7 +6,7 @@
 #include "esp_timer.h"
 
 enum { GS232B_STA_JOB_NONE, GS232B_STA_JOB_APPLY, GS232B_STA_JOB_STOP,
-       GS232B_STA_JOB_AP_START, GS232B_STA_JOB_AP_STOP, GS232B_STA_JOB_EXIT };
+       GS232B_STA_JOB_AP_START, GS232B_STA_JOB_AP_STOP, GS232B_STA_JOB_EXIT, GS232B_STA_JOB_SCAN };
 ESP_EVENT_DECLARE_BASE(GS232B_STA_FENCE_EVENT);
 
 /** @brief 转换 SDK 错误，保留原始值到 snapshot 由调用方负责。 */
@@ -24,6 +24,8 @@ gs232b_error_t gs232b_sta_ap_start(gs232b_esp_wifi_sta_t *adapter);
 gs232b_error_t gs232b_sta_ap_stop(gs232b_esp_wifi_sta_t *adapter);
 /** @brief 事件回调仅更新 STA 状态，绝不直接重连。 */
 void gs232b_sta_event(void *ctx, esp_event_base_t base, int32_t id, void *data);
+/** @brief 控制任务有界消费 SDK 事件，溢出进入重连并撤销旧地址。 */
+void gs232b_sta_events_service(gs232b_esp_wifi_sta_t *adapter);
 /** @brief 默认循环屏障回调，隔离没有 netif 标识的旧 Wi-Fi 事件。 */
 void gs232b_sta_fence_event(void *ctx, esp_event_base_t base, int32_t id, void *data);
 #endif

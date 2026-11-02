@@ -3,6 +3,7 @@
 
 #include "gs232b/ethernet.h"
 #include "gs232b/w5500_reset.h"
+#include "gs232b/esp_network_event.h"
 
 #include <stdatomic.h>
 
@@ -19,7 +20,8 @@
 #include "freertos/task.h"
 
 /* NOTE: 私有布局只供静态分配，不得复制活动对象。控制任务独占 reset、job、
- * closing；工作任务独占驱动资源；事件回调和快照通过 lock 共享 state。
+ * closing；工作任务独占驱动资源；service 与工作任务通过 lock 共享 state。
+ * SDK 回调仅零等待投递固定事件，service 有界消费后才更新快照。
  * 所有公开 API 均与输出管理器同一串行所有者调用，不得从事件回调重入。 */
 typedef struct {
     gs232b_w5500_reset_t reset;
@@ -27,10 +29,13 @@ typedef struct {
     gs232b_time_us_t waiting_since_us;
     uint64_t fence_serial;
     SemaphoreHandle_t lock;
-    SemaphoreHandle_t fence;
+    QueueHandle_t fence;
     SemaphoreHandle_t stopped;
     QueueHandle_t requests;
     QueueHandle_t results;
+    QueueHandle_t events;
+    atomic_uint event_generation;
+    atomic_bool event_lost;
     TaskHandle_t worker;
     esp_eth_mac_t *mac;
     esp_eth_phy_t *phy;
@@ -62,6 +67,14 @@ gs232b_error_t gs232b_esp_ethernet_open(gs232b_esp_ethernet_t *adapter,
                                       const gs232b_ethernet_config_t *config);
 
 /**
+ * @brief 接管组合入口已完成的首次硬复位，直接异步安装驱动，不重复脉冲。
+ * @param startup 处于 READY、全停且总线门已打开的首次复位协调器。
+ * @note 成功后 bit4 与恢复流程转交 adapter；调用方不得再推进 startup。
+ */
+gs232b_error_t gs232b_esp_ethernet_open_after_reset(gs232b_esp_ethernet_t *adapter,
+    const gs232b_w5500_reset_t *startup, const gs232b_ethernet_config_t *config);
+
+/**
  * @brief 非阻塞请求启动或硬件恢复；输出 bit4 只由原有复位协调器提交。
  * @note 请求成功即使旧 ETH 会话失效；调用方处理 session_epoch 后再接纳输入。
  *       失败不自动重试，不覆盖输出故障；先由运动核心处理故障并显式全停。
@@ -78,7 +91,7 @@ gs232b_error_t gs232b_esp_ethernet_configure(gs232b_esp_ethernet_t *adapter,
 
 /**
  * @brief 非阻塞推进复位和 DHCP 超时；停启、探测及事件排空由工作任务执行。
- * @return OK 可表示等待中，WOULD_BLOCK 表示状态暂被事件任务更新；其他错误不自动重试。
+ * @return OK 可表示等待中，WOULD_BLOCK 表示状态暂被工作任务更新；其他错误不自动重试。
  */
 gs232b_error_t gs232b_esp_ethernet_service(gs232b_esp_ethernet_t *adapter);
 

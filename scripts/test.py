@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the firmware and run the independent native smoke test."""
+"""Build the complete firmware and run native module and startup integration tests."""
 
 import argparse
 import json
@@ -60,8 +60,31 @@ def check_capture_link() -> None:
     print("Verified ESP32-C3 / ESP-IDF 6.1.0 UART1 RX capture API link", flush=True)
 
 
+def check_application_link() -> None:
+    """Require the real composition entry and every platform path in the default ELF."""
+    build = ROOT / ".pio" / "build" / ENVIRONMENT
+    description = json.loads((build / "project_description.json").read_text())
+    compiler = Path(description["c_compiler"])
+    nm = compiler.with_name(compiler.name.removesuffix("gcc") + "nm")
+    symbols = subprocess.check_output(
+        [str(nm), "--defined-only", str(build / "firmware.elf")], text=True
+    )
+    defined = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    required = {
+        "app_main", "gs232b_app_start", "gs232b_app_step", "gs232b_app_board_config",
+        "gs232b_dispatcher_init", "gs232b_motion_init", "gs232b_esp_shared_spi_open",
+        "gs232b_esp_store_worker_open", "gs232b_esp_store_worker_port", "nvs_commit",
+        "gs232b_esp_adc_capture", "esp_timer_start_periodic", "gs232b_esp_uart_service",
+        "gs232b_esp_ethernet_open_after_reset", "gs232b_esp_wifi_sta_service",
+        "gs232b_esp_ws_open", "gs232b_esp_ws_service",
+    }
+    if missing := required - defined:
+        raise RuntimeError(f"Application integration link missing symbols: {sorted(missing)}")
+    print("Verified default firmware composition + tasks + all platform paths", flush=True)
+
+
 def check_ethernet_link(environment: str = ETHERNET_ENVIRONMENT) -> None:
-    """Verify real W5500, esp-netif and lwIP survive the empty app's linker GC."""
+    """Verify real W5500, esp-netif and lwIP are retained in the target ELF."""
     build = ROOT / ".pio" / "build" / environment
     description = json.loads((build / "project_description.json").read_text())
     if description["target"] != "esp32c3" or description["git_revision"] != "6.1.0":
@@ -179,6 +202,7 @@ def main() -> int:
             check_target_console(ETHERNET_ENVIRONMENT)
             check_target_console(WIFI_STA_ENVIRONMENT)
             check_target_console(WEBSOCKET_ENVIRONMENT)
+            check_application_link()
             check_capture_link()
             check_ethernet_link()
             check_wifi_sta_link()

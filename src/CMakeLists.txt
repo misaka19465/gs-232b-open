@@ -1,7 +1,9 @@
 include("${CMAKE_CURRENT_LIST_DIR}/../scripts/ensure_web.cmake")
 
 idf_component_register(
-    SRCS "app_main.c" "core/types.c" "core/ports.c" "core/line_parser.c"
+    SRCS "app_main.c" "app/app.c" "app/board_config.c" "app/esp_app.c" "app/esp_sampling.c"
+         "app/esp_network.c" "app/esp_network_service.c" "platform/esp_store_worker.c"
+         "core/types.c" "core/ports.c" "core/line_parser.c"
          "core/extension.c" "core/extension_json.c" "core/gs_extensions.c" "core/gs_management.c" "core/gs_admin.c"
          "core/network_config.c" "core/network_fields.c" "core/network_replies.c" "core/gs_network.c"
          "core/response_encoder.c" "core/coordinates.c" "core/feedback.c"

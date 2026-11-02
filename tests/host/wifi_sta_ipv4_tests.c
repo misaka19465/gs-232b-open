@@ -48,6 +48,9 @@ static bool open_and_scan(void)
     const gs232b_provisioning_ap_config_t ap = {.ssid = "setup", .password = "setup-pass",
         .address = 0xc0a80401, .netmask = 0xffffff00, .gateway = 0xc0a80401};
     CHECK(gs232b_esp_wifi_sta_ap_start(&f.sta, &ap) == GS232B_OK && wifi_settle(&f));
+    wifi_ready(&f);
+    CHECK(wifi_snapshot(&f, &snapshot) && snapshot.ipv4_valid);
+    const uint64_t epoch = snapshot.session_epoch;
     const wifi_ap_record_t records[] = {
         {.ssid = "中文网络", .rssi = -42, .authmode = WIFI_AUTH_WPA2_PSK},
         {.ssid = "quote\"\\\n", .rssi = -70, .authmode = WIFI_AUTH_OPEN},
@@ -60,6 +63,26 @@ static bool open_and_scan(void)
     CHECK(count == 2 && !truncated);
     CHECK(strcmp(networks[0].ssid, "中文网络") == 0);
     CHECK(strcmp(networks[1].ssid, "quote\"\\\n") == 0 && networks[1].auth == WIFI_AUTH_OPEN);
+    fake_wifi_scan_results(records, 3);
+    const unsigned scans = fake_wifi_status().calls[WIFI_FAKE_SCAN_START];
+    fake_wifi_scan_pause(true);
+    CHECK(gs232b_esp_wifi_sta_ap_scan_async(&f.sta, networks, 64, &count, &truncated) ==
+        GS232B_ERROR_WOULD_BLOCK);
+    const uint64_t deadline = wifi_wall_ms() + 3000;
+    while (!fake_wifi_scan_paused() && wifi_wall_ms() < deadline) sched_yield();
+    CHECK(fake_wifi_scan_paused());
+    CHECK(gs232b_esp_wifi_sta_interfaces_stable(&f.sta));
+    fake_wifi_disconnected(WIFI_REASON_AUTH_FAIL);
+    CHECK(gs232b_esp_wifi_sta_service(&f.sta) == GS232B_ERROR_IO);
+    CHECK(gs232b_esp_wifi_sta_snapshot(&f.sta, &snapshot) == GS232B_OK);
+    CHECK(!snapshot.ipv4_valid && snapshot.session_epoch > epoch &&
+        snapshot.state == GS232B_WIFI_STA_RETRY_WAIT);
+    CHECK(gs232b_esp_wifi_sta_ap_scan_async(&f.sta, networks, 64, &count, &truncated) ==
+        GS232B_ERROR_WOULD_BLOCK);
+    fake_wifi_scan_pause(false);
+    CHECK(wifi_settle(&f));
+    CHECK(gs232b_esp_wifi_sta_ap_scan_async(&f.sta, networks, 64, &count, &truncated) == GS232B_OK);
+    CHECK(count == 2 && !truncated && fake_wifi_status().calls[WIFI_FAKE_SCAN_START] == scans + 1U);
     wifi_ap_record_t many[80] = {0};
     for (unsigned i = 0; i < 80; ++i) {
         memset(many[i].ssid, '\x1f', 31);

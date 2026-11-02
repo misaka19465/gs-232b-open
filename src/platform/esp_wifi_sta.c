@@ -23,6 +23,13 @@ static void worker(void *ctx)
     unsigned job;
     while (xQueueReceive(adapter->requests, &job, portMAX_DELAY) == pdPASS) {
         if (job == GS232B_STA_JOB_EXIT) { break; }
+        if (job == GS232B_STA_JOB_SCAN) {
+            const gs232b_error_t result = gs232b_esp_wifi_sta_ap_scan(adapter,
+                adapter->scan_aps, GS232B_PROVISIONING_SCAN_MAX_APS,
+                &adapter->scan_count, &adapter->scan_truncated);
+            (void)xQueueSend(adapter->results, &result, portMAX_DELAY);
+            continue;
+        }
         gs232b_error_t result = gs232b_sta_stop(adapter);
         if (result == GS232B_OK && job != GS232B_STA_JOB_STOP &&
             job != GS232B_STA_JOB_EXIT &&
@@ -66,7 +73,8 @@ static gs232b_error_t release(gs232b_esp_wifi_sta_t *adapter)
     }
     if (adapter->requests != NULL) { vQueueDelete(adapter->requests); }
     if (adapter->results != NULL) { vQueueDelete(adapter->results); }
-    if (adapter->fence != NULL) { vSemaphoreDelete(adapter->fence); }
+    if (adapter->fence != NULL) { vQueueDelete(adapter->fence); }
+    if (adapter->events != NULL) { vQueueDelete(adapter->events); }
     if (adapter->stopped != NULL) { vSemaphoreDelete(adapter->stopped); }
     if (adapter->lock != NULL) { vSemaphoreDelete(adapter->lock); }
     memset(adapter, 0, sizeof(*adapter));
@@ -92,12 +100,15 @@ gs232b_error_t gs232b_esp_wifi_sta_open(gs232b_esp_wifi_sta_t *adapter,
         return gs232b_sta_error(error);
     }
     adapter->lock = xSemaphoreCreateMutex();
-    adapter->fence = xSemaphoreCreateBinary();
+    adapter->fence = xQueueCreate(1, sizeof(uint64_t));
+    adapter->events = xQueueCreate(GS232B_NETWORK_EVENT_CAPACITY, sizeof(gs232b_esp_network_event_t));
+    atomic_init(&adapter->event_generation, 1);
+    atomic_init(&adapter->event_lost, false);
     adapter->stopped = xSemaphoreCreateBinary();
     adapter->requests = xQueueCreate(1, sizeof(unsigned));
     adapter->results = xQueueCreate(1, sizeof(gs232b_error_t));
     if (adapter->lock == NULL || adapter->fence == NULL || adapter->stopped == NULL ||
-        adapter->requests == NULL || adapter->results == NULL) {
+        adapter->requests == NULL || adapter->results == NULL || adapter->events == NULL) {
         (void)release(adapter);
         return GS232B_ERROR_RESOURCE_EXHAUSTED;
     }
@@ -169,10 +180,16 @@ gs232b_error_t gs232b_esp_wifi_sta_service(gs232b_esp_wifi_sta_t *adapter)
     if (adapter->job != GS232B_STA_JOB_NONE) {
         gs232b_error_t result;
         if (xQueueReceive(adapter->results, &result, 0) != pdPASS) {
-            return GS232B_ERROR_WOULD_BLOCK;
+            if (adapter->job != GS232B_STA_JOB_SCAN) return GS232B_ERROR_WOULD_BLOCK;
+        } else {
+            if (adapter->job == GS232B_STA_JOB_SCAN) {
+                adapter->scan_error = result;
+                adapter->scan_done = true;
+            }
+            adapter->job = GS232B_STA_JOB_NONE;
         }
-        adapter->job = GS232B_STA_JOB_NONE;
     }
+    gs232b_sta_events_service(adapter);
     if (xSemaphoreTake(adapter->lock, 0) != pdPASS) { return GS232B_ERROR_WOULD_BLOCK; }
     const int64_t now = esp_timer_get_time();
     if (now >= 0 && (uint64_t)now >= adapter->waiting_since_us &&
@@ -184,7 +201,7 @@ gs232b_error_t gs232b_esp_wifi_sta_service(gs232b_esp_wifi_sta_t *adapter)
             GS232B_WIFI_STA_FAILURE_DHCP_TIMEOUT : GS232B_WIFI_STA_FAILURE_CONNECT_TIMEOUT,
             GS232B_ERROR_TIMEOUT, ESP_ERR_TIMEOUT, 0);
     }
-    const bool retry = adapter->state.enabled && now >= 0 &&
+    const bool retry = adapter->job == GS232B_STA_JOB_NONE && adapter->state.enabled && now >= 0 &&
         adapter->state.state == GS232B_WIFI_STA_RETRY_WAIT &&
         (uint64_t)now >= adapter->state.retry_at_us;
     if (retry) { adapter->state.state = GS232B_WIFI_STA_STARTING; }
@@ -204,6 +221,12 @@ gs232b_error_t gs232b_esp_wifi_sta_snapshot(gs232b_esp_wifi_sta_t *adapter,
     *snapshot = adapter->state;
     (void)xSemaphoreGive(adapter->lock);
     return GS232B_OK;
+}
+
+bool gs232b_esp_wifi_sta_interfaces_stable(const gs232b_esp_wifi_sta_t *adapter)
+{
+    return adapter != NULL && adapter->opened && adapter->closing == 0 &&
+        (adapter->job == GS232B_STA_JOB_NONE || adapter->job == GS232B_STA_JOB_SCAN);
 }
 
 gs232b_error_t gs232b_esp_wifi_sta_close(gs232b_esp_wifi_sta_t *adapter)
@@ -326,7 +349,8 @@ gs232b_error_t gs232b_esp_wifi_sta_ap_scan(gs232b_esp_wifi_sta_t *adapter,
     if (adapter == NULL || !adapter->opened || !adapter->ap_requested || adapter->closing != 0) {
         return GS232B_ERROR_NOT_READY;
     }
-    if (adapter->job != GS232B_STA_JOB_NONE) return GS232B_ERROR_BUSY;
+    if (adapter->job != GS232B_STA_JOB_NONE && adapter->job != GS232B_STA_JOB_SCAN)
+        return GS232B_ERROR_BUSY;
     esp_err_t error = esp_wifi_scan_start(NULL, true);
     if (error != ESP_OK) {
         (void)esp_wifi_clear_ap_list();
@@ -359,4 +383,27 @@ gs232b_error_t gs232b_esp_wifi_sta_ap_scan(gs232b_esp_wifi_sta_t *adapter,
     if (error != ESP_OK) { *truncated = false; return gs232b_sta_error(error); }
     *count = stored;
     return GS232B_OK;
+}
+
+gs232b_error_t gs232b_esp_wifi_sta_ap_scan_async(gs232b_esp_wifi_sta_t *adapter,
+    gs232b_provisioning_ap_t *aps, size_t capacity, size_t *count, bool *truncated)
+{
+    if (adapter == NULL || aps == NULL || capacity == 0 || count == NULL || truncated == NULL)
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    *count = 0;
+    *truncated = false;
+    if (!adapter->opened || !adapter->ap_requested || adapter->closing != 0)
+        return GS232B_ERROR_NOT_READY;
+    if (adapter->scan_done) {
+        adapter->scan_done = false;
+        if (adapter->scan_error != GS232B_OK) return adapter->scan_error;
+        *count = adapter->scan_count < capacity ? adapter->scan_count : capacity;
+        *truncated = adapter->scan_truncated || *count < adapter->scan_count;
+        memcpy(aps, adapter->scan_aps, *count * sizeof(*aps));
+        return GS232B_OK;
+    }
+    if (adapter->job == GS232B_STA_JOB_SCAN) return GS232B_ERROR_WOULD_BLOCK;
+    if (adapter->job != GS232B_STA_JOB_NONE) return GS232B_ERROR_BUSY;
+    const gs232b_error_t error = dispatch(adapter, GS232B_STA_JOB_SCAN);
+    return error == GS232B_OK ? GS232B_ERROR_WOULD_BLOCK : error;
 }

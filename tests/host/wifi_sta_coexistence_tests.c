@@ -26,6 +26,7 @@ bool wifi_test_coexistence(void)
     const gs232b_ethernet_ipv4_t eth_ip = {.address = 0xc0a80133, .netmask = 0xffffff00, .gateway = 0xc0a80101};
     fake_eth_lease(&eth, eth_ip);
     gs232b_ethernet_snapshot_t before, after;
+    (void)gs232b_esp_ethernet_service(&eth);
     CHECK(gs232b_esp_ethernet_snapshot(&eth, &before) == GS232B_OK);
     CHECK(before.state == GS232B_ETHERNET_READY);
     wifi_ready(&f);
@@ -43,6 +44,7 @@ bool wifi_test_coexistence(void)
         CHECK(wifi_settle(&f)); wifi_ready(&f);
         CHECK(gs232b_esp_wifi_sta_set_enabled(&f.sta, false) == GS232B_OK);
         CHECK(wifi_settle(&f));
+        (void)gs232b_esp_ethernet_service(&eth);
         CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
         CHECK(after.state == GS232B_ETHERNET_READY && after.session_epoch == before.session_epoch);
         CHECK(after.ipv4_valid && after.current.address == eth_ip.address && eth.netif == eth_netif);
@@ -53,12 +55,14 @@ bool wifi_test_coexistence(void)
     CHECK(wifi_snapshot(&f, &sta) && sta.state == GS232B_WIFI_STA_READY);
     const uint64_t sta_epoch = sta.session_epoch;
     fake_eth_link(&eth, false);
+    (void)gs232b_esp_ethernet_service(&eth);
     CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
     CHECK(after.state == GS232B_ETHERNET_LINK_DOWN && !after.ipv4_valid);
     CHECK(wifi_snapshot(&f, &sta) && sta.state == GS232B_WIFI_STA_READY &&
         sta.session_epoch == sta_epoch);
     fake_eth_link(&eth, true);
     fake_eth_lease(&eth, eth_ip);
+    (void)gs232b_esp_ethernet_service(&eth);
     CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
     CHECK(after.state == GS232B_ETHERNET_READY && after.current.address == eth_ip.address);
     const uint64_t eth_epoch_after_failover = after.session_epoch;
@@ -69,6 +73,7 @@ bool wifi_test_coexistence(void)
     /* NOTE: STA 关闭后仍使用同一个 Ethernet netif 和默认事件循环更新租约。 */
     CHECK(wifi_close_result(&f) == GS232B_OK);
     fake_eth_lease(&eth, eth_ip);
+    (void)gs232b_esp_ethernet_service(&eth);
     CHECK(gs232b_esp_ethernet_snapshot(&eth, &after) == GS232B_OK);
     CHECK(after.state == GS232B_ETHERNET_READY && after.session_epoch == eth_epoch_after_failover);
     CHECK(eth.netif == eth_netif && fake_eth_status().calls[ETH_FAKE_STOP] == stops);

@@ -15,6 +15,8 @@ typedef struct {
 } fake_wifi_status_t;
 void fake_wifi_reset(void);
 void fake_wifi_scan_results(const wifi_ap_record_t *records, uint16_t count);
+void fake_wifi_scan_pause(bool pause);
+bool fake_wifi_scan_paused(void);
 fake_wifi_status_t fake_wifi_status(void);
 void fake_wifi_fail(fake_wifi_call_t which, esp_err_t error);
 void fake_wifi_connected(void);

@@ -15,24 +15,21 @@ void gs232b_eth_fence_event(void *ctx, esp_event_base_t base, int32_t id, void *
     gs232b_esp_ethernet_t *adapter = ctx;
     const fence_message_t *message = data;
     if (message == NULL || message->adapter != adapter) { return; }
-    (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
-    if (message->serial == adapter->fence_serial) {
-        (void)xSemaphoreGive(adapter->fence);
-    }
-    (void)xSemaphoreGive(adapter->lock);
+    (void)xQueueSend(adapter->fence, &message->serial, 0);
 }
 
 static gs232b_error_t fence(gs232b_esp_ethernet_t *adapter)
 {
     (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
-    (void)xSemaphoreTake(adapter->fence, 0);
+    (void)xQueueReset(adapter->fence);
     const fence_message_t message = {adapter, ++adapter->fence_serial};
     (void)xSemaphoreGive(adapter->lock);
     const esp_err_t error = esp_event_post(GS232B_ETH_FENCE_EVENT, 0,
         &message, sizeof(message), pdMS_TO_TICKS(100));
     if (error != ESP_OK) { return gs232b_eth_error(error); }
-    return xSemaphoreTake(adapter->fence, pdMS_TO_TICKS(1000)) == pdPASS ?
-           GS232B_OK : GS232B_ERROR_TIMEOUT;
+    uint64_t acknowledged = 0;
+    return xQueueReceive(adapter->fence, &acknowledged, pdMS_TO_TICKS(1000)) == pdPASS &&
+        acknowledged == message.serial ? GS232B_OK : GS232B_ERROR_TIMEOUT;
 }
 
 static gs232b_error_t unregister_handler(esp_event_base_t base,
@@ -185,6 +182,9 @@ gs232b_error_t gs232b_eth_driver_resume(gs232b_esp_ethernet_t *adapter)
     adapter->state.state = GS232B_ETHERNET_LINK_DOWN;
     adapter->state.last_error = GS232B_OK;
     adapter->state.dhcp_running = false;
+    (void)xQueueReset(adapter->events);
+    atomic_store(&adapter->event_lost, false);
+    atomic_fetch_add(&adapter->event_generation, 1);
     adapter->accepting_events = true;
     (void)xSemaphoreGive(adapter->lock);
     adapter->start_attempted = true;

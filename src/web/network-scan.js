@@ -5,10 +5,20 @@
  */
 export async function fetchNetworks(channel) {
   const aps = [];
+  const deadline = Date.now() + 15000;
   let scanId, total, truncated, cursor = 0;
   while (true) {
-    const reply = await channel.command(scanId === undefined ? 'PROV SCAN' :
-      `PROV SCAN ${JSON.stringify({ scan_id: scanId, cursor })}`);
+    let reply;
+    try {
+      reply = await channel.command(scanId === undefined ? 'PROV SCAN' :
+        `PROV SCAN ${JSON.stringify({ scan_id: scanId, cursor })}`);
+    } catch (error) {
+      // NOTE: 板级扫描在网络工作任务执行；只轮询尚未取得 ID 的首块，保持分页快照一致。
+      if (scanId !== undefined || !['WOULD_BLOCK', 'BUSY'].includes(error?.error) || Date.now() >= deadline)
+        throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      continue;
+    }
     if (!Number.isInteger(reply.scan_id) || reply.scan_id < 1 || reply.scan_id > 0xffffffff ||
         !Number.isInteger(reply.total) || reply.total < 0 || reply.total > 64 ||
         reply.offset !== cursor || !Array.isArray(reply.aps) || reply.aps.length > 8 ||

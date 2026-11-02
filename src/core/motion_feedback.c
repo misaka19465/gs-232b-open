@@ -2,7 +2,8 @@
 
 bool gs232b_motion_axis_ready(const gs232b_motion_t *motion, int axis)
 {
-    return motion->config.axes[axis].enabled && motion->state.axes[axis].zero_valid &&
+    return motion->config.parameters_verified && motion->config.axes[axis].enabled &&
+           motion->state.axes[axis].zero_valid &&
            motion->state.axes[axis].limits_valid;
 }
 

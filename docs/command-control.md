@@ -1,6 +1,6 @@
 # 所有权、停止优先与旧命令失效
 
-接口见 [`command_control.h`](../include/gs232b/command_control.h)。控制核心已加入 ESP-IDF 组件和原生测试，无动态内存、RTOS 或传输依赖；通过同步执行端口接入运动状态。M/W 增量上传、完整参数验证、双缓冲序列数据、定时状态机和会话隔离的校准交互由核心持有。生产执行端及来源有序响应已由[官方 GS dispatcher](gs-dispatcher.md)接入，覆盖设计第 3.1 节完整命令。`app_main` 仍为构建基线，实际 UART/WebSocket 与板级驱动需经 dispatcher 门面接入。
+接口见 [`command_control.h`](../include/gs232b/command_control.h)。控制核心已加入 ESP-IDF 组件和原生测试，无动态内存、RTOS 或传输依赖；通过同步执行端口接入运动状态。M/W 增量上传、完整参数验证、双缓冲序列数据、定时状态机和会话隔离的校准交互由核心持有。生产执行端及来源有序响应已由[官方 GS dispatcher](gs-dispatcher.md)接入，覆盖设计第 3.1 节完整命令。`app_main` 已经由 dispatcher 门面接入 UART/WebSocket 与板级驱动。
 
 ## 所有权与权限
 

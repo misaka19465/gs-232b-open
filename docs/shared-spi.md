@@ -1,6 +1,6 @@
 # 共享 SPI、595 提交与 W5500 外置复位
 
-板级入口见 [`esp_shared_spi.h`](../include/gs232b/esp_shared_spi.h)，可替换平台端口和完整提交协议见 [`shared_spi.h`](../include/gs232b/shared_spi.h)，复位协调接口见 [`w5500_reset.h`](../include/gs232b/w5500_reset.h)。这些适配器已加入固件组件；W5500、netif、DHCP 及静态 IPv4 生命周期服务见 [`ethernet-lifecycle.md`](ethernet-lifecycle.md)。`app_main` 仍是构建基线，应用任务和会话通过接口集成。
+板级入口见 [`esp_shared_spi.h`](../include/gs232b/esp_shared_spi.h)，可替换平台端口和完整提交协议见 [`shared_spi.h`](../include/gs232b/shared_spi.h)，复位协调接口见 [`w5500_reset.h`](../include/gs232b/w5500_reset.h)。这些适配器已加入固件组件；W5500、netif、DHCP 及静态 IPv4 生命周期服务见 [`ethernet-lifecycle.md`](ethernet-lifecycle.md)。组合入口已通过统一控制任务接入输出、W5500 复位、网络和会话生命周期。
 
 构建使用 `espressif32@8.0.0`，实际解析为 ESP-IDF **6.1.0**（PlatformIO framework 包 `4.60100.0`）。IDF 6 已将 W5500 移至官方组件，工程在 `src/idf_component.yml` 和 `dependencies.lock` 锁定 `espressif/w5500 2.0.1`、`espressif/wiznet_common 1.1.0`。`sdkconfig.defaults` 将调试控制台固定到 USB Serial/JTAG，避免 UART0 初始化争用 GPIO20。
 

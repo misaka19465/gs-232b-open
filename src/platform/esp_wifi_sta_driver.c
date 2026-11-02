@@ -14,9 +14,7 @@ void gs232b_sta_fence_event(void *ctx, esp_event_base_t base, int32_t id, void *
     gs232b_esp_wifi_sta_t *adapter = ctx;
     const fence_message_t *message = data;
     if (message == NULL || message->adapter != adapter) { return; }
-    (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
-    if (message->serial == adapter->fence_serial) { (void)xSemaphoreGive(adapter->fence); }
-    (void)xSemaphoreGive(adapter->lock);
+    (void)xQueueSend(adapter->fence, &message->serial, 0);
 }
 
 static gs232b_error_t sdk_result(gs232b_esp_wifi_sta_t *adapter, esp_err_t error)
@@ -32,14 +30,16 @@ static gs232b_error_t sdk_result(gs232b_esp_wifi_sta_t *adapter, esp_err_t error
 static gs232b_error_t fence(gs232b_esp_wifi_sta_t *adapter)
 {
     (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
-    (void)xSemaphoreTake(adapter->fence, 0);
+    (void)xQueueReset(adapter->fence);
     const fence_message_t message = {adapter, ++adapter->fence_serial};
     (void)xSemaphoreGive(adapter->lock);
     const esp_err_t error = esp_event_post(GS232B_STA_FENCE_EVENT, 0, &message,
                                           sizeof(message), pdMS_TO_TICKS(100));
     if (error != ESP_OK) { return sdk_result(adapter, error); }
-    return sdk_result(adapter, xSemaphoreTake(adapter->fence, pdMS_TO_TICKS(1000)) == pdPASS ?
-                       ESP_OK : ESP_ERR_TIMEOUT);
+    uint64_t acknowledged = 0;
+    return sdk_result(adapter,
+        xQueueReceive(adapter->fence, &acknowledged, pdMS_TO_TICKS(1000)) == pdPASS &&
+        acknowledged == message.serial ? ESP_OK : ESP_ERR_TIMEOUT);
 }
 
 static gs232b_error_t unregister(gs232b_esp_wifi_sta_t *adapter, esp_event_base_t base,
@@ -213,6 +213,9 @@ gs232b_error_t gs232b_sta_start(gs232b_esp_wifi_sta_t *adapter)
     adapter->waiting_since_us = now < 0 ? 0 : (uint64_t)now;
     adapter->state.state = adapter->configured.enabled ? GS232B_WIFI_STA_CONNECTING :
         GS232B_WIFI_STA_DISABLED;
+    (void)xQueueReset(adapter->events);
+    atomic_store(&adapter->event_lost, false);
+    atomic_fetch_add(&adapter->event_generation, 1);
     adapter->accepting_events = adapter->configured.enabled;
     (void)xSemaphoreGive(adapter->lock);
     adapter->ap_started = adapter->ap_requested;

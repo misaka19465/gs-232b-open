@@ -3,6 +3,7 @@
 
 #include "gs232b/wifi_sta.h"
 #include "gs232b/provisioning.h"
+#include "gs232b/esp_network_event.h"
 
 #define GS232B_ESP_WIFI_STA_ROUTE_PRIORITY 100
 
@@ -15,14 +16,19 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-/* NOTE: 私有布局供静态分配，不复制活动对象；所有公开 API 由同一管理任务串行调用。
- * 工作任务独占 SDK 生命周期，事件回调与快照用 lock 保护状态；不依赖 Ethernet。 */
+/* NOTE: 私有布局供静态分配，不复制活动对象；管理 API 由同一控制任务串行调用。
+ * 工作任务独占 SDK 生命周期和同步扫描；状态通过 lock 共享，不依赖 Ethernet。
+ * SDK 回调仅零等待投递固定事件，service 有界消费后才更新快照。 */
 typedef struct {
     gs232b_wifi_sta_config_t configured;
     gs232b_wifi_sta_snapshot_t state;
     gs232b_time_us_t waiting_since_us;
-    SemaphoreHandle_t lock, fence, stopped;
+    SemaphoreHandle_t lock, stopped;
+    QueueHandle_t fence;
     QueueHandle_t requests, results;
+    QueueHandle_t events;
+    atomic_uint event_generation;
+    atomic_bool event_lost;
     TaskHandle_t worker;
     esp_netif_t *netif;
     esp_netif_t *ap_netif;
@@ -32,6 +38,10 @@ typedef struct {
     unsigned job, closing;
     bool initialized, start_attempted, defaults_attached, ap_defaults_attached;
     bool ap_requested, ap_started, accepting_events, opened;
+    gs232b_provisioning_ap_t scan_aps[GS232B_PROVISIONING_SCAN_MAX_APS];
+    size_t scan_count;
+    gs232b_error_t scan_error;
+    bool scan_truncated, scan_done;
     atomic_bool cancelled;
 } gs232b_esp_wifi_sta_t;
 
@@ -53,6 +63,8 @@ gs232b_error_t gs232b_esp_wifi_sta_service(gs232b_esp_wifi_sta_t *adapter);
 /** @brief 零等待复制脱敏运行状态；竞争时返回 WOULD_BLOCK 并清零输出，不含密码。 */
 gs232b_error_t gs232b_esp_wifi_sta_snapshot(gs232b_esp_wifi_sta_t *adapter,
                                           gs232b_wifi_sta_snapshot_t *snapshot);
+/** @brief 控制任务判断工作任务是否正重建 netif；扫描期间接口仍稳定可用。 */
+bool gs232b_esp_wifi_sta_interfaces_stable(const gs232b_esp_wifi_sta_t *adapter);
 /** @brief 异步释放本 STA；WOULD_BLOCK 时继续调用，失败保留资源可重试，成功后才可释放实例。 */
 gs232b_error_t gs232b_esp_wifi_sta_close(gs232b_esp_wifi_sta_t *adapter);
 
@@ -63,8 +75,11 @@ gs232b_error_t gs232b_esp_wifi_sta_ap_start(gs232b_esp_wifi_sta_t *adapter,
 gs232b_error_t gs232b_esp_wifi_sta_ap_stop(gs232b_esp_wifi_sta_t *adapter);
 /** @brief Build a provisioning AP port backed by this unified AP+STA adapter. */
 gs232b_provisioning_ap_port_t gs232b_esp_wifi_sta_ap_port(gs232b_esp_wifi_sta_t *adapter);
-/** @brief 复制最多 capacity 个有效 UTF-8 AP，逐条释放 SDK 扫描结果，truncated 表示还有 AP。 */
+/** @brief 工作任务同步扫描并复制最多 capacity 个有效 UTF-8 AP；不得从运动循环调用。 */
 gs232b_error_t gs232b_esp_wifi_sta_ap_scan(gs232b_esp_wifi_sta_t *adapter,
+    gs232b_provisioning_ap_t *aps, size_t capacity, size_t *count, bool *truncated);
+/** @brief 请求工作任务扫描；完成前返回 WOULD_BLOCK，service 后重复调用取得结果。 */
+gs232b_error_t gs232b_esp_wifi_sta_ap_scan_async(gs232b_esp_wifi_sta_t *adapter,
     gs232b_provisioning_ap_t *aps, size_t capacity, size_t *count, bool *truncated);
 #endif
 #endif

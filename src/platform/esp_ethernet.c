@@ -81,22 +81,24 @@ static gs232b_error_t release_service(gs232b_esp_ethernet_t *adapter)
     }
     if (adapter->requests != NULL) { vQueueDelete(adapter->requests); }
     if (adapter->results != NULL) { vQueueDelete(adapter->results); }
-    if (adapter->fence != NULL) { vSemaphoreDelete(adapter->fence); }
+    if (adapter->fence != NULL) { vQueueDelete(adapter->fence); }
+    if (adapter->events != NULL) { vQueueDelete(adapter->events); }
     if (adapter->stopped != NULL) { vSemaphoreDelete(adapter->stopped); }
     if (adapter->lock != NULL) { vSemaphoreDelete(adapter->lock); }
     memset(adapter, 0, sizeof(*adapter));
     return GS232B_OK;
 }
 
-gs232b_error_t gs232b_esp_ethernet_open(gs232b_esp_ethernet_t *adapter,
+static gs232b_error_t open_service(gs232b_esp_ethernet_t *adapter,
                                       gs232b_shared_spi_t *bus,
                                       gs232b_output_manager_t *outputs,
-                                      const gs232b_ethernet_config_t *config)
+                                      const gs232b_ethernet_config_t *config, bool reset_ready)
 {
     const gs232b_ethernet_config_t dhcp = {0};
     if (config == NULL) { config = &dhcp; }
     if (adapter == NULL || bus == NULL || adapter->opened || adapter->lock != NULL ||
-        !gs232b_ethernet_config_valid(config) || atomic_load(&bus->ethernet_enabled)) {
+        !gs232b_ethernet_config_valid(config) ||
+        atomic_load(&bus->ethernet_enabled) != reset_ready) {
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     gs232b_error_t result = gs232b_w5500_reset_init(&adapter->reset, outputs, bus,
@@ -120,12 +122,15 @@ gs232b_error_t gs232b_esp_ethernet_open(gs232b_esp_ethernet_t *adapter,
     adapter->state.configured = *config;
     adapter->state.session_epoch = 1;
     adapter->lock = xSemaphoreCreateMutex();
-    adapter->fence = xSemaphoreCreateBinary();
+    adapter->fence = xQueueCreate(1, sizeof(uint64_t));
+    adapter->events = xQueueCreate(GS232B_NETWORK_EVENT_CAPACITY, sizeof(gs232b_esp_network_event_t));
+    atomic_init(&adapter->event_generation, 1);
+    atomic_init(&adapter->event_lost, false);
     adapter->stopped = xSemaphoreCreateBinary();
     adapter->requests = xQueueCreate(1, sizeof(unsigned));
     adapter->results = xQueueCreate(1, sizeof(gs232b_error_t));
     if (adapter->lock == NULL || adapter->fence == NULL || adapter->stopped == NULL ||
-        adapter->requests == NULL || adapter->results == NULL) {
+        adapter->requests == NULL || adapter->results == NULL || adapter->events == NULL) {
         (void)release_service(adapter);
         return GS232B_ERROR_RESOURCE_EXHAUSTED;
     }
@@ -138,7 +143,29 @@ gs232b_error_t gs232b_esp_ethernet_open(gs232b_esp_ethernet_t *adapter,
     }
     if (result != GS232B_OK) { (void)release_service(adapter); return result; }
     adapter->opened = true;
+    if (reset_ready) adapter->reset.phase = GS232B_W5500_RESUMING;
     return GS232B_OK;
+}
+
+gs232b_error_t gs232b_esp_ethernet_open(gs232b_esp_ethernet_t *adapter,
+    gs232b_shared_spi_t *bus, gs232b_output_manager_t *outputs,
+    const gs232b_ethernet_config_t *config)
+{
+    return open_service(adapter, bus, outputs, config, false);
+}
+
+gs232b_error_t gs232b_esp_ethernet_open_after_reset(gs232b_esp_ethernet_t *adapter,
+    const gs232b_w5500_reset_t *startup, const gs232b_ethernet_config_t *config)
+{
+    if (startup == NULL || startup->phase != GS232B_W5500_READY || startup->outputs == NULL) {
+        return GS232B_ERROR_NOT_READY;
+    }
+    const gs232b_output_snapshot_t *output = &startup->outputs->state.output;
+    if (!output->known || output->last_successful.w5500_reset_asserted ||
+        output->last_successful.azimuth != GS232B_AZ_STOP ||
+        output->last_successful.elevation != GS232B_EL_STOP ||
+        output->last_successful.speed_permille != 0) return GS232B_ERROR_NOT_READY;
+    return open_service(adapter, startup->bus, startup->outputs, config, true);
 }
 
 gs232b_error_t gs232b_esp_ethernet_recover(gs232b_esp_ethernet_t *adapter)
@@ -215,6 +242,7 @@ gs232b_error_t gs232b_esp_ethernet_service(gs232b_esp_ethernet_t *adapter)
             }
         }
     }
+    if (adapter->job == GS232B_ETH_JOB_NONE) gs232b_eth_events_service(adapter);
     if (xSemaphoreTake(adapter->lock, 0) != pdPASS) {
         return result != GS232B_OK ? result : GS232B_ERROR_WOULD_BLOCK;
     }

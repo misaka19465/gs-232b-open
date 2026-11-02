@@ -6,9 +6,8 @@
 快照显示 `GS232B_ETHERNET_READY` 才表示接口已经有可用 IPv4。
 
 入口见 [`esp_ethernet.h`](../include/gs232b/esp_ethernet.h)，配置、状态及 IPv4
-校验见 [`ethernet.h`](../include/gs232b/ethernet.h)。本模块作为应用组装接口交付，
-`app_main` 仍保留构建基线；WebSocket、Wi-Fi、管理命令、配置试运行确认和持久化
-格式由上层负责。
+校验见 [`ethernet.h`](../include/gs232b/ethernet.h)。[组合入口](app-lifecycle.md)已连接
+WebSocket、Wi-Fi、管理命令、配置试运行确认和独立存储任务。
 
 | 状态 | 含义 |
 | --- | --- |
@@ -45,7 +44,9 @@ MAC 稳定性、驱动失败和输出恢复；`scripts/test.py` 还会检查 ESP
 目标配置；`current` 只在 IPv4 有效时包含运行地址、掩码、网关和 DNS。取得同一租约
 或仅 DNS 更新不会使旧会话失效。上层须同时检查 `ipv4_valid` 和 `session_epoch`，
 即使两次快照之间已经重连，也不能继续旧会话。代次不会回绕，耗尽后保持 ERROR，须
-关闭并重新初始化。网络回调只更新网络状态，不直接调用 dispatcher 或运动核心。
+关闭并重新初始化。网络回调只零等待投递固定事件，由控制任务的 `service` 更新网络状态，
+不直接调用 dispatcher 或运动核心。事件队列固定 16 槽，每轮最多消费 4 个；溢出立即撤销
+地址和旧会话代次，并保持 ERROR，须显式恢复。
 
 1. 打开共享 SPI，并初始化唯一输出管理器提交四路停止、PWM=0、bit4 保持复位。
 2. 用清零的 Ethernet 实例调用 `open(adapter, bus, outputs, config)`；传入 NULL 使用 DHCP。
@@ -76,7 +77,7 @@ python3 scripts/test.py
 python3 scripts/test.py --host-only
 ```
 
-`ethernet-api-check` 在空 `app_main` 下强制保留所有公开生命周期入口，检查真实
+`ethernet-api-check` 强制保留所有公开生命周期入口，检查真实
 W5500、netif、lwIP DHCP、GPIO ISR 服务及输出管理器符号，并检查接口 DNS 配置。
 `sdkconfig.defaults` 开启 `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF`；如果本地旧
 sdkconfig 显式关闭接口 DNS，需先更新该设置后重建。

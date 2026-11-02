@@ -1,6 +1,6 @@
 # GPIO20 LEDC 调速适配
 
-板级接口见 [`esp_ledc.h`](../include/gs232b/esp_ledc.h)，实现见 [`esp_ledc.c`](../src/platform/esp_ledc.c)。共享 SPI 板级适配器持有 LEDC 实例，并将唯一输出管理器的 PWM 提交交给它；运动层和命令层不直接操作 LEDC。已接入固件组件；`app_main` 仍为构建基线，未在上电时自动运行电机。
+板级接口见 [`esp_ledc.h`](../include/gs232b/esp_ledc.h)，实现见 [`esp_ledc.c`](../src/platform/esp_ledc.c)。共享 SPI 板级适配器持有 LEDC 实例，并将唯一输出管理器的 PWM 提交交给它；运动层和命令层不直接操作 LEDC。已接入组合入口；上电先锁存全停并保持 PWM=0，运动仍受零点、反馈和实测参数门禁。
 
 ## 引脚、计数与边界
 

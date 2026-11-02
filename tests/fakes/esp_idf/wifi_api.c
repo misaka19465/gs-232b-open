@@ -8,6 +8,8 @@
 #include <string.h>
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t scan_condition = PTHREAD_COND_INITIALIZER;
+static bool scan_pause_requested, scan_paused;
 static fake_wifi_status_t status;
 static esp_err_t faults[WIFI_FAKE_CALLS];
 static esp_netif_t *station;
@@ -34,6 +36,7 @@ void fake_wifi_reset(void)
     scan_count = 0;
     scan_cursor = 0;
     scan_environment_count = 0;
+    scan_pause_requested = scan_paused = false;
 }
 
 fake_wifi_status_t fake_wifi_status(void)
@@ -214,9 +217,31 @@ esp_err_t esp_wifi_connect(void)
 esp_err_t esp_wifi_scan_start(const void *config, bool block)
 {
     (void)config; (void)block;
+    const esp_err_t error = call(WIFI_FAKE_SCAN_START);
+    assert(pthread_mutex_lock(&lock) == 0);
+    scan_paused = scan_pause_requested;
+    while (scan_pause_requested) assert(pthread_cond_wait(&scan_condition, &lock) == 0);
+    scan_paused = false;
+    assert(pthread_mutex_unlock(&lock) == 0);
     scan_count = scan_environment_count;
     scan_cursor = 0;
-    return call(WIFI_FAKE_SCAN_START);
+    return error;
+}
+
+void fake_wifi_scan_pause(bool pause)
+{
+    assert(pthread_mutex_lock(&lock) == 0);
+    scan_pause_requested = pause;
+    assert(pthread_cond_broadcast(&scan_condition) == 0);
+    assert(pthread_mutex_unlock(&lock) == 0);
+}
+
+bool fake_wifi_scan_paused(void)
+{
+    assert(pthread_mutex_lock(&lock) == 0);
+    const bool paused = scan_paused;
+    assert(pthread_mutex_unlock(&lock) == 0);
+    return paused;
 }
 
 void fake_wifi_scan_results(const wifi_ap_record_t *records, uint16_t count)

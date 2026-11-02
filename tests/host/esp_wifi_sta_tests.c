@@ -143,10 +143,40 @@ static bool disable_and_reconfigure(void)
     return true;
 }
 
+static bool callbacks_and_overflow(void)
+{
+    wifi_fixture_t f;
+    CHECK(wifi_open(&f, &wifi_good));
+    CHECK(xSemaphoreTake(f.sta.lock, 0) == pdPASS);
+    fake_wifi_connected();
+    fake_wifi_lease(&f.sta, wifi_ip);
+    CHECK(!f.sta.state.connected && !f.sta.state.ipv4_valid);
+    CHECK(uxQueueMessagesWaiting(f.sta.events) == 2);
+    CHECK(xSemaphoreGive(f.sta.lock) == pdPASS);
+    gs232b_wifi_sta_snapshot_t state;
+    CHECK(wifi_snapshot(&f, &state) && state.ipv4_valid);
+    const uint64_t epoch = state.session_epoch;
+    const unsigned reads = fake_eth_status().calls[ETH_FAKE_GET_IP];
+    CHECK(xSemaphoreTake(f.sta.lock, 0) == pdPASS);
+    for (unsigned i = 0; i <= GS232B_NETWORK_EVENT_CAPACITY; ++i) fake_wifi_connected();
+    CHECK(uxQueueMessagesWaiting(f.sta.events) == GS232B_NETWORK_EVENT_CAPACITY);
+    CHECK(atomic_load(&f.sta.event_lost));
+    CHECK(f.sta.state.ipv4_valid && fake_eth_status().calls[ETH_FAKE_GET_IP] == reads);
+    CHECK(xSemaphoreGive(f.sta.lock) == pdPASS);
+    CHECK(gs232b_esp_wifi_sta_service(&f.sta) == GS232B_ERROR_RESOURCE_EXHAUSTED);
+    CHECK(gs232b_esp_wifi_sta_snapshot(&f.sta, &state) == GS232B_OK);
+    CHECK(state.state == GS232B_WIFI_STA_RETRY_WAIT && !state.ipv4_valid && state.session_epoch > epoch);
+    for (unsigned i = 0; i < 4; ++i) (void)gs232b_esp_wifi_sta_service(&f.sta);
+    CHECK(gs232b_esp_wifi_sta_snapshot(&f.sta, &state) == GS232B_OK && !state.ipv4_valid);
+    CHECK(wifi_close(&f));
+    return true;
+}
+
 int main(void)
 {
     if (!validation() || !wrong_password_and_backoff() || !timeout_and_ip_events() ||
-        !disable_and_reconfigure() || !wifi_test_faults() || !wifi_test_coexistence() || !wifi_test_ipv4()) { return 1; }
+        !disable_and_reconfigure() || !wifi_test_faults() || !wifi_test_coexistence() ||
+        !wifi_test_ipv4() || !callbacks_and_overflow()) { return 1; }
     puts("Wi-Fi STA credentials, bounded retry, lifecycle, fault and Ethernet coexistence tests passed");
     return 0;
 }

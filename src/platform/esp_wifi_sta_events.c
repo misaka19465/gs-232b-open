@@ -85,17 +85,16 @@ failed:
     gs232b_sta_retry(adapter, GS232B_WIFI_STA_FAILURE_DRIVER, gs232b_sta_error(error), error, 0);
 }
 
-void gs232b_sta_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
+static void process_event(gs232b_esp_wifi_sta_t *adapter, esp_event_base_t base, int32_t id,
+    void *data, gs232b_time_us_t occurred_at_us)
 {
-    gs232b_esp_wifi_sta_t *adapter = ctx;
-    (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
     if (!adapter->accepting_events || atomic_load(&adapter->cancelled) ||
         adapter->state.session_epoch == UINT64_MAX) { goto done; }
     if (base == WIFI_EVENT) {
         if (id == WIFI_EVENT_STA_CONNECTED && !adapter->state.connected) {
             adapter->state.connected = true;
             adapter->state.state = GS232B_WIFI_STA_DHCP_WAIT;
-            adapter->waiting_since_us = (gs232b_time_us_t)esp_timer_get_time();
+            adapter->waiting_since_us = occurred_at_us;
             if (adapter->configured.mode == GS232B_WIFI_STA_STATIC) {
                 ip_event_got_ip_t event = {.esp_netif = adapter->netif};
                 const esp_err_t error = esp_netif_get_ip_info(adapter->netif, &event.ip_info);
@@ -124,10 +123,49 @@ void gs232b_sta_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
                 gs232b_sta_invalidate(adapter);
                 if (adapter->state.session_epoch == UINT64_MAX) { goto done; }
                 adapter->state.state = GS232B_WIFI_STA_DHCP_WAIT;
-                adapter->waiting_since_us = (gs232b_time_us_t)esp_timer_get_time();
+                adapter->waiting_since_us = occurred_at_us;
             }
         }
     }
 done:
+    return;
+}
+
+void gs232b_sta_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
+{
+    gs232b_esp_wifi_sta_t *adapter = ctx;
+    gs232b_esp_network_event_t event = {
+        .base = base, .id = id, .generation = atomic_load(&adapter->event_generation),
+        .occurred_at_us = (uint64_t)esp_timer_get_time()
+    };
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && data != NULL) {
+        event.reason = ((wifi_event_sta_disconnected_t *)data)->reason;
+    } else if (base == IP_EVENT && data != NULL &&
+        (id == IP_EVENT_STA_GOT_IP || id == IP_EVENT_STA_LOST_IP)) {
+        event.ip = *(ip_event_got_ip_t *)data;
+    } else if (base != WIFI_EVENT ||
+        (id != WIFI_EVENT_STA_CONNECTED && id != WIFI_EVENT_STA_STOP)) return;
+    if (xQueueSend(adapter->events, &event, 0) != pdPASS)
+        atomic_store(&adapter->event_lost, true);
+}
+
+void gs232b_sta_events_service(gs232b_esp_wifi_sta_t *adapter)
+{
+    if (xSemaphoreTake(adapter->lock, 0) != pdPASS) return;
+    gs232b_esp_network_event_t event;
+    for (unsigned count = 0; count < 4U &&
+         xQueueReceive(adapter->events, &event, 0) == pdPASS; ++count) {
+        if (event.generation != atomic_load(&adapter->event_generation)) continue;
+        if (event.base == IP_EVENT)
+            process_event(adapter, event.base, event.id, &event.ip, event.occurred_at_us);
+        else if (event.id == WIFI_EVENT_STA_DISCONNECTED) {
+            wifi_event_sta_disconnected_t disconnected = {.reason = event.reason};
+            process_event(adapter, event.base, event.id, &disconnected, event.occurred_at_us);
+        } else process_event(adapter, event.base, event.id, NULL, event.occurred_at_us);
+    }
+    if (atomic_exchange(&adapter->event_lost, false)) {
+        gs232b_sta_retry(adapter, GS232B_WIFI_STA_FAILURE_DRIVER,
+            GS232B_ERROR_RESOURCE_EXHAUSTED, ESP_ERR_NO_MEM, 0);
+    }
     (void)xSemaphoreGive(adapter->lock);
 }

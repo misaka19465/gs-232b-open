@@ -27,11 +27,10 @@ void gs232b_eth_fail(gs232b_esp_ethernet_t *adapter, gs232b_error_t error)
                                GS232B_ERROR_RESOURCE_EXHAUSTED : error;
 }
 
-static void wait_for_ip(gs232b_esp_ethernet_t *adapter)
+static void wait_for_ip(gs232b_esp_ethernet_t *adapter, gs232b_time_us_t occurred_at_us)
 {
     if (adapter->state.session_epoch == UINT64_MAX) { return; }
-    const int64_t now = esp_timer_get_time();
-    adapter->waiting_since_us = now < 0 ? 0 : (uint64_t)now;
+    adapter->waiting_since_us = occurred_at_us;
     adapter->state.state = GS232B_ETHERNET_LINK_UP_NO_IP;
     if (adapter->state.configured.mode == GS232B_ETHERNET_DHCP) {
         esp_netif_dhcp_status_t status;
@@ -84,11 +83,10 @@ static void got_ip(gs232b_esp_ethernet_t *adapter, const ip_event_got_ip_t *even
     adapter->state.last_error = GS232B_OK;
 }
 
-void gs232b_eth_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
+static void process_event(gs232b_esp_ethernet_t *adapter, esp_event_base_t base, int32_t id,
+    void *data, gs232b_time_us_t occurred_at_us)
 {
-    gs232b_esp_ethernet_t *adapter = ctx;
     if (data == NULL) { return; }
-    (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
     if (!adapter->accepting_events || atomic_load(&adapter->cancelled) ||
         adapter->state.session_epoch == UINT64_MAX) { goto done; }
     if (base == ETH_EVENT) {
@@ -98,7 +96,7 @@ void gs232b_eth_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
             if (!adapter->state.link_up) {
                 adapter->state.link_up = true;
                 adapter->state.last_error = GS232B_OK;
-                wait_for_ip(adapter);
+                wait_for_ip(adapter, occurred_at_us);
             }
             if (adapter->state.configured.mode == GS232B_ETHERNET_STATIC) {
                 /* NOTE: 无 DHCP_CLIENT 标志时，glue 不发布静态 GOT_IP；link up
@@ -135,10 +133,47 @@ void gs232b_eth_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
             if (error != ESP_OK) { gs232b_eth_fail(adapter, gs232b_eth_error(error)); }
             else if (current.ip.addr == 0) {
                 gs232b_eth_invalidate(adapter);
-                if (adapter->state.link_up) { wait_for_ip(adapter); }
+                if (adapter->state.link_up) { wait_for_ip(adapter, occurred_at_us); }
             }
         }
     }
 done:
+    return;
+}
+
+void gs232b_eth_event(void *ctx, esp_event_base_t base, int32_t id, void *data)
+{
+    gs232b_esp_ethernet_t *adapter = ctx;
+    gs232b_esp_network_event_t event = {
+        .base = base, .id = id, .generation = atomic_load(&adapter->event_generation),
+        .occurred_at_us = (uint64_t)esp_timer_get_time()
+    };
+    if (base == ETH_EVENT && data != NULL &&
+        (id == ETHERNET_EVENT_CONNECTED || id == ETHERNET_EVENT_DISCONNECTED ||
+         id == ETHERNET_EVENT_STOP)) {
+        event.driver = *(esp_eth_handle_t *)data;
+    } else if (base == IP_EVENT && data != NULL &&
+        (id == IP_EVENT_ETH_GOT_IP || id == IP_EVENT_ETH_LOST_IP)) {
+        event.ip = *(ip_event_got_ip_t *)data;
+    } else return;
+    if (xQueueSend(adapter->events, &event, 0) != pdPASS)
+        atomic_store(&adapter->event_lost, true);
+}
+
+void gs232b_eth_events_service(gs232b_esp_ethernet_t *adapter)
+{
+    if (xSemaphoreTake(adapter->lock, 0) != pdPASS) return;
+    gs232b_esp_network_event_t event;
+    for (unsigned count = 0; count < 4U &&
+         xQueueReceive(adapter->events, &event, 0) == pdPASS; ++count) {
+        if (event.generation != atomic_load(&adapter->event_generation)) continue;
+        if (event.base == ETH_EVENT)
+            process_event(adapter, event.base, event.id, &event.driver, event.occurred_at_us);
+        else process_event(adapter, event.base, event.id, &event.ip, event.occurred_at_us);
+    }
+    if (atomic_exchange(&adapter->event_lost, false)) {
+        adapter->accepting_events = false;
+        gs232b_eth_fail(adapter, GS232B_ERROR_RESOURCE_EXHAUSTED);
+    }
     (void)xSemaphoreGive(adapter->lock);
 }

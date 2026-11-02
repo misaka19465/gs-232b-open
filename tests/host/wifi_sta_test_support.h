@@ -40,6 +40,7 @@ static inline bool wifi_snapshot(wifi_fixture_t *f, gs232b_wifi_sta_snapshot_t *
 {
     const uint64_t deadline = wifi_wall_ms() + 3000;
     while (wifi_wall_ms() < deadline) {
+        (void)gs232b_esp_wifi_sta_service(&f->sta);
         const gs232b_error_t result = gs232b_esp_wifi_sta_snapshot(&f->sta, out);
         if (result == GS232B_OK) { return true; }
         CHECK(result == GS232B_ERROR_WOULD_BLOCK);
@@ -87,6 +88,7 @@ static inline void wifi_ready(wifi_fixture_t *f)
 {
     fake_wifi_connected();
     fake_wifi_lease(&f->sta, wifi_ip);
+    (void)gs232b_esp_wifi_sta_service(&f->sta);
 }
 
 bool wifi_test_faults(void);

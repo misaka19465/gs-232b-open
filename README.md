@@ -2,6 +2,8 @@
 
 ## FULL of AI slop, use at your own risk
 
+[EN](/README_EN.md) · [中文](/README.md)
+
 基于 ESP32-C3 的天线旋转器控制器，通过 USB 串口、Ethernet 或 Wi-Fi 接收 GS-232B 命令。
 
 [硬件说明](docs/gs-232b-open-hardware.md) · [控制协议](docs/gs-232b-serial-protocol.md) · [管理与配网](docs/management-commands.md) · [原理图](docs/SCH.svg) · [物料清单](docs/BOM.csv)
@@ -62,4 +64,6 @@ MCU 复位、卡死或烧录时，硬件不保证方向输出立即关闭。接�
 
 本项目使用 GPL-3.0-only 许可。
 
-YAESU 为 八重洲无线株式会社（Yaesu Musen Co., Ltd.）注册商标，本项目不涉及任何对八重洲无线株式会社所生产设备的逆向工程、反编译、仿制或其他侵权行为，仅通信协议有部分兼容。GS-232B Open 仅为项目名，不代表任何官方产品或品牌。
+本项目名称中的“GS-232B”仅为描述性使用，旨在说明本项目所实现通信协议的目标兼容对象，不表示本项目是八重洲无线株式会社（Yaesu Musen Co., Ltd.）的官方产品，也不暗示与该公司存在任何赞助、认可或合作关系。“YAESU”为其注册商标。
+
+本项目的通信协议兼容性实现，基于对公开可得的技术信息的独立开发。本项目不包含对八重洲无线株式会社所生产设备之固件或软件的逆向工程、反编译或仿制内容。本项目仅旨在提供与部分公开协议规范的有限兼容性，不保证与所有官方设备的完全互操作性。

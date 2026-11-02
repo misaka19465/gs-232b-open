@@ -2,6 +2,8 @@
 
 ## FULL of AI slop, use at your own risk
 
+[EN](/README_EN.md) · [中文](/README.md)
+
 An ESP32-C3-based antenna rotator controller that receives GS-232B commands over USB serial, Ethernet, or Wi-Fi.
 
 [Hardware guide](docs/gs-232b-open-hardware.md) · [Control protocol](docs/gs-232b-serial-protocol.md) · [Management and provisioning](docs/management-commands.md) · [Schematic](docs/SCH.svg) · [Bill of materials](docs/BOM.csv)
@@ -62,4 +64,6 @@ During an MCU reset, hang, or firmware flash, the hardware does not guarantee th
 
 This project is licensed under GPL-3.0-only.
 
-YAESU is a registered trademark of Yaesu Musen Co., Ltd. This project does not involve reverse engineering, decompilation, imitation, or other infringement involving equipment manufactured by Yaesu Musen Co., Ltd.; it is only partially compatible with the communications protocol. GS-232B Open is the project name only and does not represent any official product or brand.
+“The term ‘GS-232B’ in the project name is used only descriptively, to identify the intended compatibility target of the communication protocol implemented by this project. It does not mean that this project is an official product of Yaesu Musen Co., Ltd., nor does it imply any sponsorship, endorsement, or affiliation with that company. ‘YAESU’ is a registered trademark of Yaesu Musen Co., Ltd.
+
+The protocol compatibility implemented by this project is based on independent development using publicly available technical information. This project does not include any reverse engineering, decompilation, or imitation of the firmware or software of devices manufactured by Yaesu Musen Co., Ltd. This project is intended only to provide limited compatibility with certain publicly available protocol specifications and does not guarantee full interoperability with all official devices.”

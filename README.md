@@ -1,38 +1,65 @@
 # GS-232B Open
 
-ESP32-C3 旋转器控制器，提供 CH340K 串口、W5500 Ethernet 和 Wi-Fi WebSocket 入口，兼容 GS-232B 的控制、查询、定时序列与交互校准。各入口可同时连接和查询，两轴由单一会话控制，响应返回来源会话；网络配置经试运行确认后保存。设备没有用户可操作的配网或恢复按钮。
+## FULL of AI slop, use at your own risk
 
-默认使用型号 ID 1（G-5500）双轴配置，换向等待为 250 ms；机型 ID 及对应轴能力见[管理命令](docs/management-commands.md)。运动就绪状态依据各轴零点、反馈、限位、输出及故障状态判断。
+基于 ESP32-C3 的天线旋转器控制器，通过 USB 串口、Ethernet 或 Wi-Fi 接收 GS-232B 命令。
 
-| 说明 | 内容 |
+[硬件说明](docs/gs-232b-open-hardware.md) · [控制协议](docs/gs-232b-serial-protocol.md) · [管理与配网](docs/management-commands.md) · [原理图](docs/SCH.svg) · [物料清单](docs/BOM.csv)
+
+## 功能
+
+- 方位、仰角控制，位置查询，目标定位，定时序列与交互校准。
+- CH340K USB 串口、W5500 Ethernet 和 Wi-Fi；网络控制使用 WebSocket。
+- 内置离线配网页，支持网络配置试运行、确认保存和超时回滚。
+- 默认使用 G-5500 双轴配置，可切换[旋转器型号](docs/management-commands.md#旋转器型号)。
+
+## 连接与首次配网
+
+| 接口 | 用途 |
 | --- | --- |
-| [硬件](docs/gs-232b-open-hardware.md) | 接线、电源、模拟通道、复位限制与实板验收 |
-| [GS 控制协议](docs/gs-232b-serial-protocol.md) | 串口/WS 接入、命令、角度映射、序列、校准与控制权 |
-| [管理与配网](docs/management-commands.md) | 权限、网络试运行、SoftAP 网页和恢复操作 |
+| USB2 / CH340K | 主要串口，默认使用 9600 波特率，8N1，关闭硬件流控。如果需要修改，流程与原版一致，详见[控制协议](docs/gs-232b-serial-protocol.md#串口配置)。 |
+| Ethernet / Wi-Fi STA | WebSocket：`ws://<设备IPv4>/ws/gs232b`。 |
+| USB1 / 原生 USB | 固件烧录与调试日志。 |
 
-## 构建与验证
+串口启动后等待 `Connect OK`，命令以 CR（`\r`）结束。首次使用前，按[控制协议](docs/gs-232b-serial-protocol.md#校准)完成零点校准。
 
-需要 Python 3、PlatformIO、Node.js 20+ 和 npm；主机测试需要 C11 编译器、CMake 3.22+、线程支持及 OpenSSL Crypto 开发库，sanitizer 建议使用 Clang。目标依赖由 [platformio.ini](platformio.ini)、[组件清单](src/idf_component.yml)和 [dependencies.lock](dependencies.lock)锁定；当前目标为 ESP32-C3 / ESP-IDF 6.1.0。
+设备没有用户可操作的配网按钮。首次启动且没有已确认的网络配置时，会开启 600 秒 SoftAP：
 
-从干净检出构建：
+1. 从 USB2 串口发送 `!PROV STATUS`，取得 AP 名称、密码和地址。
+2. 连接该 Wi-Fi 网络，在浏览器打开 `http://<AP地址>/`。
+3. 配置网络；确认目标 Wi-Fi 已取得 IP 地址后，再在页面确认保存。
+
+已保存配置后，连接失败不会自动重新开启 SoftAP；可从 USB2 发送 `!PROV START` 重新配网。完整流程见[管理与配网](docs/management-commands.md#首次配网与恢复入口)。
+
+## 构建与烧录
+
+需要 Python 3、PlatformIO Core、Node.js 20+ 和 npm。在仓库根目录执行：
 
 ```sh
 npm ci
 pio run
+pio run -t upload
 ```
 
-PlatformIO 会生成内置离线配网页；修改网页后可单独执行 `npm run build:web`。生成的 HTML/gzip 不提交。使用原生 ESP-IDF CMake 或仅跑主机测试时，也应先安装 npm 依赖；已有网页产物需要手动重建以反映修改。
+默认目标为 ESP32-C3-WROOM-02U-N4，构建时自动生成内置配网页。通过 USB1 烧录；如需指定端口，使用 `pio run -t upload --upload-port <串口设备>`。
 
-| 命令 | 用途 |
-| --- | --- |
-| `python3 scripts/test.py` | 固件及 API 构建、链接/控制台检查、资源预算和主机回归 |
-| `python3 scripts/test.py --host-only` | 仅主机回归 |
-| `python3 scripts/test.py --host-only --sanitizers` | ASan/LSan/UBSan |
-| `npm run test:web` | 配网页浏览器测试；首次需 `npx playwright install chromium` |
-| `python3 scripts/resource_budget.py` | 已有默认固件构建时重新生成目标 ABI 资源数据 |
+## 测试
 
-主机结果位于 `build/host/results.xml` 或 `build/host-sanitized/results.xml`，资源数据位于 `build/resource-budget/budget.json`。资源预算统计目标 ABI 的静态分配；实板堆峰值和控制延迟独立记录。
+```sh
+python3 scripts/test.py
+npm run test:web
+```
 
-## 维护入口
+完整固件与主机测试需要 C11 编译器、CMake 3.22+、线程支持及 OpenSSL Crypto 开发库。首次运行网页测试时，先执行 `npx playwright install chromium`。
 
-应用组合在 [src/app](src/app)，协议与运动逻辑在 [src/core](src/core)，外设适配在 [src/platform](src/platform)，配网页在 [src/web](src/web)。内部调用约束随 [include/gs232b](include/gs232b) 中的 API 注释维护，生命周期、容量及故障行为由实现和 [tests](tests) 验证。硬件原件为 [SCH.svg](docs/SCH.svg) 和 [BOM.csv](docs/BOM.csv)。
+## 硬件安全
+
+本板连接旋转器控制箱的外部控制接口，不直接驱动电机；各接口共地、无光耦隔离。**DC1 不能接 12 V 适配器。** 接线和供电要求见[硬件说明](docs/gs-232b-open-hardware.md)。
+
+MCU 复位、卡死或烧录时，硬件不保证方向输出立即关闭。接入实机前需验证[启动与复位行为](docs/gs-232b-open-hardware.md#启动与复位边界)，软件停止不能替代硬件急停。
+
+## 许可
+
+本项目使用 GPL-3.0-only 许可。
+
+YAESU 为 八重洲无线株式会社（Yaesu Musen Co., Ltd.）注册商标，本项目不涉及任何对八重洲无线株式会社所生产设备的逆向工程、反编译、仿制或其他侵权行为，仅通信协议有部分兼容。GS-232B Open 仅为项目名，不代表任何官方产品或品牌。

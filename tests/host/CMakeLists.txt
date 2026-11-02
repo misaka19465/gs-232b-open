@@ -11,7 +11,28 @@ endif()
 
 enable_testing()
 
+option(GS232B_SANITIZERS "Enable host address/undefined sanitizers" OFF)
+if(GS232B_SANITIZERS)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "Sanitizers require GCC or Clang")
+    endif()
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 find_package(Threads REQUIRED)
+
+add_executable(nvs_store_fault_tests nvs_store_fault_tests.c ../fakes/esp_idf/nvs_api.c
+    ../../src/platform/nvs_store.c ../../src/core/ports.c ../../src/core/types.c)
+target_include_directories(nvs_store_fault_tests PRIVATE ../../include ../fakes/esp_idf)
+target_compile_definitions(nvs_store_fault_tests PRIVATE ESP_PLATFORM)
+set_target_properties(nvs_store_fault_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(nvs_store_fault_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME nvs_store_faults COMMAND nvs_store_fault_tests)
+set_tests_properties(nvs_store_faults PROPERTIES TIMEOUT 5)
 
 add_executable(esp_ethernet_tests
     esp_ethernet_tests.c
@@ -378,6 +399,14 @@ set_tests_properties(persistence PROPERTIES TIMEOUT 5)
 
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
+# NOTE: 两个传输测试目标共用固件的压缩页面，只生成一次字节数组。
+set(provisioning_html "${CMAKE_CURRENT_SOURCE_DIR}/../../src/web/provisioning.html.gz")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${provisioning_html}")
+file(READ "${provisioning_html}" provisioning_hex HEX)
+string(REGEX REPLACE "(..)" "0x\\1," provisioning_bytes "${provisioning_hex}")
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/provisioning_html.h"
+    CONTENT "static const unsigned char provisioning_html[] = {${provisioning_bytes}};\n")
+
 foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tests
                              command_invalidation_tests sequence_upload_tests
                              sequence_commit_tests sequence_timing_tests
@@ -387,7 +416,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
                              gs_management_tests gs_admin_tests gs_reset_tests gs_calibration_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
                              esp_uart_capture_tests transport_fault_tests esp_ws_tests app_startup_tests
-                             esp_store_worker_tests)
+                             esp_store_worker_tests concurrency_regression_tests)
     add_executable(${motion_test}
         ${motion_test}.c
         ../fakes/motion_sim.c
@@ -447,26 +476,27 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
     if(motion_test STREQUAL "gs_management_tests")
         target_sources(${motion_test} PRIVATE management_matrix_tests.c)
     endif()
-    if(motion_test STREQUAL "esp_ws_tests")
-        # NOTE: 与固件共享 HTML 源文件，原生测试不依赖 ESP-IDF 的交叉汇编器。
-        set(provisioning_html "${CMAKE_CURRENT_SOURCE_DIR}/../../src/web/provisioning.html.gz")
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${provisioning_html}")
-        file(READ "${provisioning_html}" provisioning_hex HEX)
-        string(REGEX REPLACE "(..)" "0x\\1," provisioning_bytes "${provisioning_hex}")
-        file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/provisioning_html.h"
-            CONTENT "static const unsigned char provisioning_html[] = {${provisioning_bytes}};\n")
-        target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_network_tests.c
-            ws_watchdog_tests.c ws_management_tests.c
+    if(motion_test STREQUAL "esp_ws_tests" OR motion_test STREQUAL "concurrency_regression_tests")
+        target_sources(${motion_test} PRIVATE
             ../../src/platform/esp_ws.c ../../src/platform/esp_ws_rx.c ../../src/platform/esp_ws_tx.c
             ../../src/platform/provisioning_page.c
-            ../fakes/esp_idf/ws_api.c ../fakes/esp_idf/ws_rtos.c)
+            ../fakes/esp_idf/ws_api.c)
+        if(motion_test STREQUAL "esp_ws_tests")
+            target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_network_tests.c
+                ws_watchdog_tests.c ws_management_tests.c ../fakes/esp_idf/ws_rtos.c)
+        else()
+            target_sources(${motion_test} PRIVATE concurrency_fixture.c concurrency_upload_tests.c
+                concurrency_pressure_tests.c concurrency_fault_tests.c
+                ../../src/platform/shared_spi.c ../fakes/spi_bus.c)
+            target_compile_definitions(${motion_test} PRIVATE GS232B_TEST_UART_CLOCK)
+        endif()
         target_include_directories(${motion_test} PRIVATE ../fakes/esp_idf "${CMAKE_CURRENT_BINARY_DIR}")
         target_compile_definitions(${motion_test} PRIVATE ESP_PLATFORM GS232B_TEST_ASSETS
             CONFIG_HTTPD_WS_SUPPORT=1 CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=1
             CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT=1 CONFIG_HTTPD_QUEUE_WORK_BLOCKING=0
             CONFIG_LWIP_IPV6=1)
     endif()
-    if(motion_test MATCHES "^esp_uart.*_tests$")
+    if(motion_test MATCHES "^esp_uart.*_tests$" OR motion_test STREQUAL "concurrency_regression_tests")
         target_sources(${motion_test} PRIVATE ../../src/platform/esp_uart.c
             ../../src/platform/esp_uart_rx.c ../../src/platform/esp_uart_boot.c
             ../../src/platform/esp_uart_capture.c ../../src/core/uart_baud.c

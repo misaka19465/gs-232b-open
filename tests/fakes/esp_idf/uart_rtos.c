@@ -109,8 +109,11 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t semaphore, TickType_t ticks)
         return result == 0 ? pdPASS : pdFAIL;
     }
     fake_uart.ticks_waited += ticks;
+    /* NOTE: 组合测试的握手等待推进同一串行控制任务；零等待探测绝不运行 RX 任务。 */
+    const bool handled = !semaphore->ready && ticks != 0 &&
+        fake_uart.binary_wait != NULL && fake_uart.binary_wait();
     /* NOTE: 确定性任务调度替身只在退出等待时运行任务；正常 RX 由测试逐步推进。 */
-    if (!semaphore->ready && scheduled != NULL && !fake_uart.defer_exit) {
+    if (!semaphore->ready && ticks != 0 && !handled && scheduled != NULL && !fake_uart.defer_exit) {
         scheduled->entry(scheduled->ctx);
     }
     bool ready = semaphore->ready;

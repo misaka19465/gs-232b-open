@@ -16,6 +16,7 @@ typedef struct {
     unsigned ticks_waited, task_priority, task_stack;
     TaskFunction_t task_entry;
     void *task_ctx;
+    bool (*binary_wait)(void);
     size_t tx_limit, wire_size, rx_count;
     uint8_t wire[65536];
     uint8_t rx[32768];

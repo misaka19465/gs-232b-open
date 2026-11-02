@@ -46,11 +46,12 @@ static void collect_event(void *ctx, const gs232b_line_event_t *event)
         copy->position = *event->position;
         size_t angles = copy->position.point_count *
                         (copy->position.command == 'W' ? 2U : 1U);
-        if (angles <= sizeof(copy->angles) / sizeof(copy->angles[0])) {
+        if (angles != 0 && angles <= sizeof(copy->angles) / sizeof(copy->angles[0])) {
             memcpy(copy->angles, copy->position.angles, angles * sizeof(uint16_t));
         }
     }
-    if (event->type == GS232B_LINE_EVENT_COMMIT && event->size <= sizeof(copy->bytes)) {
+    if (event->type == GS232B_LINE_EVENT_COMMIT && event->size != 0 &&
+        event->size <= sizeof(copy->bytes)) {
         memcpy(copy->bytes, event->bytes, event->size);
     }
 }

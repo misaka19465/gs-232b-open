@@ -14,7 +14,9 @@ void fake_ws_reset(void)
     memset(&fake_ws, 0, sizeof(fake_ws));
     for (size_t i = 0; i < FAKE_WS_SOCKETS; ++i) { fake_ws.sockets[i].send_limit = SIZE_MAX; }
 }
+#ifndef GS232B_TEST_UART_CLOCK
 int64_t esp_timer_get_time(void) { return (int64_t)fake_ws.now_us; }
+#endif
 
 esp_err_t httpd_start(httpd_handle_t *server, const httpd_config_t *config)
 {

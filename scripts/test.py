@@ -3,7 +3,9 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 
 
@@ -15,9 +17,9 @@ WIFI_STA_ENVIRONMENT = "wifi-sta-api-check"
 WEBSOCKET_ENVIRONMENT = "websocket-api-check"
 
 
-def run(*command: str) -> None:
+def run(*command: str, env: dict[str, str] | None = None) -> None:
     print("+ " + " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True)
+    subprocess.run(command, cwd=ROOT, check=True, env=env)
 
 
 def check_target_console(environment: str) -> None:
@@ -190,6 +192,9 @@ def main() -> int:
     parser.add_argument(
         "--host-only", action="store_true", help="run without PlatformIO or ESP-IDF"
     )
+    parser.add_argument(
+        "--sanitizers", action="store_true", help="run host tests with ASan, LSan and UBSan"
+    )
     args = parser.parse_args()
 
     try:
@@ -207,9 +212,20 @@ def main() -> int:
             check_ethernet_link()
             check_wifi_sta_link()
             check_websocket_link()
-        run("cmake", "-S", "tests/host", "-B", "build/host")
-        run("cmake", "--build", "build/host")
-        run("ctest", "--test-dir", "build/host", "--output-on-failure", "--no-tests=error")
+            run("python3", "scripts/resource_budget.py")
+        build = "build/host-sanitized" if args.sanitizers else "build/host"
+        configure = ["cmake", "-S", "tests/host", "-B", build,
+                     f"-DGS232B_SANITIZERS={'ON' if args.sanitizers else 'OFF'}"]
+        if args.sanitizers and shutil.which("clang"):
+            configure.append(f"-DCMAKE_C_COMPILER={shutil.which('clang')}")
+        run(*configure)
+        run("cmake", "--build", build, "--parallel", str(min(os.cpu_count() or 1, 8)))
+        test_env = os.environ.copy()
+        if args.sanitizers:
+            test_env["ASAN_OPTIONS"] = "detect_leaks=1:halt_on_error=1"
+            test_env["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1"
+        run("ctest", "--test-dir", build, "--output-on-failure", "--no-tests=error",
+            "--output-junit", "results.xml", env=test_env)
     except FileNotFoundError as error:
         parser.exit(1, f"Missing build tool: {error.filename}\n")
     except subprocess.CalledProcessError as error:

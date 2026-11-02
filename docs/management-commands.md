@@ -1,79 +1,139 @@
-# 管理命令与 WS 隔离
+# 管理与配网
 
-第 7.2 节命令由 `gs_dispatcher` 的同一注册表验证、排队和执行。每条完成的扩展请求恰好返回
-一行 `!{"ok":...,"cmd":"DOMAIN ACTION",...}\r\n`。停止撤销尚未执行的扩展时，返回
-`CONFLICT`，不能执行其写入副作用。普通 GS 继续使用原编码。
+管理命令与[GS 控制命令](gs-232b-serial-protocol.md)共用串口或 WebSocket 字节流，以独立的 `!` 前缀区分。本文保留上位机接入和设备操作所需的规则。
 
-## 入口及权限
+## 格式与权限
 
-| 入口 | 可用命令及权限 |
+请求为 `!DOMAIN ACTION [JSON对象]<CR>`，最长 2048 字节，不含 CR。命令名不区分 ASCII 大小写，JSON 键和值区分大小写；字符串使用标准 JSON 转义，禁止原始 CR/LF、NUL、重复键及未知字段。
+
+每条完成请求返回一行 `!JSON\r\n`。错误包括 `INVALID_ARGUMENT`、`BUSY`、`NOT_OWNER`、`NOT_AUTHORIZED`、`NOT_READY`、`CONFLICT`、`TIMEOUT`、`HARDWARE_FAULT`；扩展不使用普通 GS 的 `?>`。停止作废未执行扩展时返回 `CONFLICT`，不执行其写入。
+
+成功响应包含 `ok:true`、规范命令名 `cmd` 和结果对象 `data`；失败使用 `ok:false`、`error` 和可选 `detail`。例如：
+
+```text
+!{"ok":true,"cmd":"CFG BEGIN","data":{"candidate_id":1,"base_revision":7,"idle_timeout_s":60}}
+!{"ok":false,"cmd":"CFG APPLY","error":"BUSY"}
+```
+
+| 入口 | 权限 |
 | --- | --- |
-| UART1 | 本地管理；独占 `ADMIN ENABLE/DISABLE`、`NET RESET`。 |
-| ETH/STA `/ws/gs232b` | 普通 GS、所有权和状态扩展；网络写入默认禁用，启用后须对本会话 `SESSION AUTH`。 |
-| ETH/STA `/ws/manage` | 扩展命令；网络写入同样要求认证。拒绝普通 GS，包括校准和 M/W 上传预约。 |
-| SoftAP `/ws/manage` | 只在配网窗口内接受连接和请求；仅放行 `SYS INFO`、`NET GET/SET`、`CFG *`、`PROV STATUS/SCAN/STOP`。 |
-| SoftAP `/ws/gs232b` | 拒绝握手。 |
+| USB2 / UART1 | 本地管理，独占 ADMIN ENABLE/DISABLE 及 NET RESET |
+| ETH/STA `/ws/gs232b` | GS 命令及扩展；网络写入须先启用管理并对本连接 SESSION AUTH |
+| ETH/STA `/ws/manage` | 仅扩展；网络写入同样要求认证，拒绝普通 GS、校准和 M/W |
+| SoftAP `/ws/manage` | 仅在活动配网窗口内放行 SYS INFO、NET GET/SET、CFG 全组、PROV STATUS/SCAN/STOP |
+| SoftAP `/ws/gs232b` | 拒绝连接 |
 
-AP 密码准入和 ETH/STA 管理 token 均不授予运动权限。AP 不得操作 `OWNER`、应用看门狗、
-`MOTION STATUS`、`FAULT CLEAR`、管理 token、网络重置，或延长自己的窗口。配网窗口在控制任务
-建立会话时、命令接纳时和执行前复查；窗口关闭后清候选并回收 AP 会话。
+LAN 查询及 GS 运动面向可信局域网；网络管理 token 和 AP 密码不授予运动所有权。AP 不能操作 OWNER、应用看门狗、MOTION STATUS、FAULT CLEAR、管理 token、网络重置或延长自身窗口。当前无 TLS/HTTPS，token 不提供传输加密。
 
-`PROV START` 在两轴已知全停、没有序列、上传或校准时可执行；窗口已经开启时保持原期限。
-`PROV STOP` 在活动或待回滚 trial 中返回 `CONFLICT`，保留恢复入口。
+## 命令速查
 
-ETH/STA 的 `OWNER TAKE` 不抢占其他会话；`OWNER RELEASE` 只允许控制者在已知全停且无任务时调用。
-`FAULT CLEAR` 可由 UART1 或可信 ETH/STA 会话显式调用；有其他控制者时返回 `NOT_OWNER`，
-运动、待运行序列或校准期间返回 `BUSY`。清除时重新停止和采样，故障仍存在则保留锁定。
+表中请求均需追加 CR；ID 和 revision 使用设备实际响应，示例数值不是固定值。
 
-## 状态数据
+| 请求 | 用途 |
+| --- | --- |
+| `!SYS INFO` | 固件、板型、轴能力、schema 与入口可用性 |
+| `!OWNER GET` | 控制者、占用原因、运动/序列/交互状态；无人控制时 owner 为 null |
+| `!OWNER TAKE` / `!OWNER RELEASE` | 空闲时申请 / 当前控制者在已知全停且无待运行任务时释放 |
+| `!MOTION STATUS` | 两轴角度、反馈、方向、目标、限位、故障及运动就绪状态 |
+| `!FAULT CLEAR` | 显式停机并重新检查反馈后清故障，不恢复旧动作 |
+| `!SESSION WATCHDOG {"timeout_ms":10000}` | 当前控制者启用应用看门狗；0 关闭，其他值为 1000～600000ms |
+| `!SESSION PING` | 当前控制者续期应用看门狗 |
+| `!ADMIN ENABLE` / `!ADMIN DISABLE` | UART 启用或轮换 / 禁用网络管理 token |
+| `!SESSION AUTH {"token":"..."}` | ETH/STA 当前连接认证；重连需重做 |
+| `!NET GET` | 已确认 active、candidate、trial 和实际运行状态，密码仅报告是否已设 |
+| `!CFG BEGIN` | 从 active 建立唯一候选，返回 candidate_id 和 base_revision |
+| `!NET SET {...}` | 合并指定候选字段，省略字段保留 |
+| `!CFG CHECK` | 校验完整候选，报告接口变更；不切网或保存 |
+| `!CFG APPLY {"candidate_id":1,"revision":7,"timeout_s":60}` | 开始 30～600 秒试运行，revision 可省略；返回 trial_id |
+| `!CFG STATUS` | 查询配置事务及期限，不续期 |
+| `!CFG CONFIRM {"trial_id":1}` | 确认保存当前试运行；最近一次成功确认可重复调用 |
+| `!CFG ABORT` / `!CFG ABORT {"trial_id":1}` | 发起者放弃自己的候选 / 回滚匹配试运行 |
+| `!PROV START {"timeout_s":600}` | UART 或已授权 LAN 开配网窗口；省略参数默认 600 秒，最长 3600 秒 |
+| `!PROV STATUS` | SSID、地址、窗口及恢复状态；只有 UART 响应含 AP 密码 |
+| `!PROV SCAN` | 扫描附近网络；后续页使用 scan_id/cursor |
+| `!PROV STOP` | 关闭 AP；活动或待回滚 trial 时返回 CONFLICT |
+| `!NET RESET {"confirm":"NETWORK_ONLY"}` | UART 仅重置网络配置，见下文 |
 
-- `SYS INFO`：实际固件构建版本、板型、轴能力、记录/网络/显示/零点/管理 schema、入口可用性。
-  ETH/STA/AP 可用性来自传输适配器发布的接口；UART1 来自活动本地会话。无密码或认证材料。
-- `OWNER GET/TAKE/RELEASE`：完整会话键、transport、epoch、模式、占用原因、序列和空闲计时。
-  没有控制者时 `owner:null`；不包含凭据。
-- `MOTION STATUS`：两轴机械角（毫度）、原始 ADC、芯片校准电压（微伏）、采样时间及有效性、
-  模式、实际方向、目标、限位和故障。无效角度/目标或未知输出方向为 `null`，不伪造零值。
-  方向枚举为 0 停止、1 方位顺时针/仰角上升、2 方位逆时针/仰角下降；故障码沿用 `types.h`。
-- `SESSION WATCHDOG/PING`：当前 `timeout_ms` 和 `enabled`。默认关闭，允许 0 或 1000..600000ms。
+### 控制权、故障与看门狗
 
-只有当前控制者成功完成的完整命令（包括它自己的查询）或显式应用 PING 续期。
-其他会话的 GS/扩展查询、失败和不完整请求、周期校准显示，以及 WS Ping/Pong 均不续期。
-到期先于普通请求执行，关闭来源会话、全停、清序列及交互并推进 epoch；迟到 PING 不能恢复旧控制者。
+OWNER TAKE 不抢占他人，RELEASE 要求全停且无待运行序列或交互；忙时可先发 S。FAULT CLEAR 在存在其他控制者时返回 NOT_OWNER，运动、待运行序列或交互期间返回 BUSY；故障条件仍在则保持锁定。
 
-## 管理 token 与持久域
+MOTION STATUS 的角度单位为毫度、电压为微伏，含有效性及 `parameters_verified`、`motion_ready`；无效角度、目标或未知方向为 null。方向 0 为停止、1 为方位 CW / 仰角 UP、2 为方位 CCW / 仰角 DOWN。零点不足、反馈无效或实测门禁未打开时不能运动。
 
-`ADMIN ENABLE` 生成 256bit 随机 token，以 64 个十六进制字符仅在当前 UART1 响应返回一次。
-固件用 ESP-IDF PSA Crypto 随机数和 SHA-256，宿主验证用 OpenSSL；独立 `GS232B_STORE_ADMIN`
-记录（schema 1）仅保存 32 字节校验材料，沿用已有 version/revision/CRC 及原子槽机制。
-新增域追加在原枚举末尾，不改变已有域编号或网络 schema 1/2/3 读取规则。
+应用看门狗默认关闭。仅当前控制者成功的完整命令或 SESSION PING 续期；旁路查询、失败或不完整输入、周期校准显示与 WS Ping/Pong 均不续期。到期关闭来源、清任务并尝试全停；迟到 PING 不恢复控制者。低速长序列上传时应选择足够长的期限，或先停机关闭看门狗。
 
-`SESSION AUTH` 不回显 token。禁用或换 key 会撤销全部网络管理身份并丢弃相应未应用候选；
-重连 generation 不继承认证。已经开始的 trial 使用独立期限和恢复机制。禁用/轮换失败保留旧材料，
-成功禁用擦除管理域两槽。响应复制到来源 TX 队列后清空 dispatcher 的临时扩展正文。
+### 管理 token
 
-## NETWORK_ONLY
+ADMIN ENABLE 产生 256bit、64 个十六进制字符的随机 token，仅在本次 UART 响应返回；请当场保存。设备只持久化校验材料，SESSION AUTH 不回显 token。禁用或换 key 成功后撤销全部网络管理身份与对应未应用候选；失败保留旧凭据，已开始的 trial 按自己的期限继续。密码和 token 不写入 USB 日志，也不出现在普通状态查询中。
 
-`NET RESET {"confirm":"NETWORK_ONLY"}` 仅 UART1；须已知全停、无序列/上传/校准、
-无其他控制者或配置事务。无效确认字符串和冲突在擦除前拒绝。
+## 首次配网与恢复入口
 
-只擦除 `GS232B_STORE_NETWORK` 的当前及历史槽，清 RAM 网络配置，恢复 ETH DHCP/禁用 STA，
-重开有界配网窗口并标记未配网。显示、两轴零点、UART 波特率、管理 token、trial ID 分配域及机械配置保留。
-保留单调 trial ID 可拒绝重置前的旧确认。
+未有已确认网络配置时，启动自动开启 600 秒 SoftAP；已有确认记录后，STA 连接失败不会自动重新开 AP。设备无用户可操作按钮，需要经 UART 或可达的已授权 LAN 开窗口：
 
-持久擦除失败保留旧运行配置。擦除成功后运行时应用或 AP 重启失败时保留 `network_reset_pending`，
-控制任务继续重试，期间拒绝新的网络写入；重启后仍从已擦除的网络域进入未配网流程。
+```text
+!PROV START
+!PROV STATUS
+```
 
-## 验收
+AP SSID 为 `GS232B-SETUP-xxxxxx`，独立密码只能从 UART 的 PROV STATUS 或设备交付凭据取得。连接 AP 后打开 `http://<返回的AP地址>/`；页面内置、离线可用，不依赖 CDN 或 DNS 劫持。AP 通常为 `192.168.4.1/24`，若与 ETH/STA 地址冲突会选其他私网，以 STATUS 返回值为准。
 
-`python3 scripts/test.py` 构建五个真实固件环境、核对链接的管理/PSA/HTTPD 路径，并执行主机测试。
-原生构建要求 OpenSSL Crypto 开发库。`npm run test:web` 验证配网页使用 `/ws/manage`。
-固件使用 IDF 标准尺寸优化，保留既有 1MiB 应用分区。已有 sdkconfig 须在 menuconfig 设置
-`Optimize for size`，或移走生成的环境 sdkconfig 后按 defaults 重建。
+网页选择网络、填写凭据后应用试运行；应等目标 STA 获得 IPv4，再手动确认保存，网页不会自动确认。AP 与 STA 共用无线电，信道切换可能短暂断开网页；重连可继续确认。AP 窗口到期或关闭不会取消独立的试运行期限，未确认配置仍按期回滚。
 
-`management_matrix_tests.c` 对第 7.2 节 23 个独立命令分别检查成功、无权和停止造成的 epoch 冲突。
-公有查询的无权场景来自已关闭窗口的 AP 会话；不为可信 LAN 公有查询增加认证要求。
-额外回归涵盖所有权竞争、执行前撤销认证、token 换 key/禁用/重连/存储失败、故障未消失及清除后
-不重跑目标、网络域两槽清除和其他域逐字节保留、运行时恢复重试、迟到 PING，以及匹配 Pong 不续期。
+PROV START 要求两轴已知全停、没有待运行序列、上传或校准；窗口已开启时不延长原期限。AP 不能给自己重新开窗口。
 
-WS 行为替身还覆盖两个 URI、AP 运动/校准拒绝、窗口过期前已排队请求复查和 Origin 策略。
-这些验证不代表已完成目标板运动、网络出口或断电实测。
+扫描返回最多 64 个网络，按 RSSI 降序，每页 8 个。`next:8` 时发送 `!PROV SCAN {"scan_id":1,"cursor":8}`，直至 next 为 null。快照 30 秒后、新扫描开始或 AP 停止时失效；过期 ID 返回 CONFLICT，非法游标返回 INVALID_ARGUMENT。`truncated:true` 表示可手动输入未列出的 SSID。ETH/STA 扫描同样要求当前连接的网络管理认证。
+
+扫描响应的 data 示例（仅发现一个网络）：
+
+```json
+{"scan_id":1,"offset":0,"total":1,"next":null,"truncated":false,"aps":[{"ssid":"radio","rssi":-45,"auth":3}]}
+```
+
+## 网络配置试运行
+
+出厂状态为 ETH DHCP、STA 禁用。配置使用“候选 → 试运行 → 确认保存”；确认前旧 active 保留。BEGIN/SET/CHECK 只编辑候选，不影响运行；候选绑定发起连接，断线或 60 秒没有成功 SET/CHECK 后丢弃，查询和失败请求不续期。
+
+APPLY 要求两轴无动作、已知全停，无已加载序列、上传或校准，并匹配 candidate_id 及可选 revision。试运行 ID 跨重启不复用；试运行不依赖原连接，新授权连接可凭 ID 确认。APPLY 响应只表示请求接纳，须从 NET GET 核对实际接口已取得有效地址，才能确认；仅连上物理链路或关联 AP 不等于有 IP。
+
+超时、ABORT 或重启恢复旧 active。CONFIRM 成功才保存完整配置；写入失败不更新 active，回滚失败保留 `rollback_pending` 并继续恢复。新写入网络记录为 schema 3，已有 schema 1/2 仍可读取并默认 STA DHCP；无需为了升级擦除零点或其他配置。
+
+下面以 UART 设置 Wi-Fi 为例，各行发送 CR。将 SSID、密码及响应 ID 换为实际值：
+
+```text
+!CFG BEGIN
+!NET SET {"wifi":{"enabled":true,"ssid":"YOUR_SSID","password":"YOUR_PASSWORD"}}
+!CFG CHECK
+!CFG APPLY {"candidate_id":1,"timeout_s":60}
+!NET GET
+!CFG CONFIRM {"trial_id":1}
+```
+
+改 ETH 固定地址或 STA 固定地址时，在各自事务内把 NET SET 替换为：
+
+```text
+!NET SET {"eth":{"mode":"static","address":"192.168.10.50","netmask":"255.255.255.0","gateway":"192.168.10.1","dns1":"192.168.10.1"}}
+!NET SET {"wifi":{"mode":"static","address":"192.168.20.50","netmask":"255.255.255.0","gateway":"192.168.20.1"}}
+```
+
+| 配置字段 | 规则 |
+| --- | --- |
+| `eth` | mode 为 dhcp/static；静态支持 address、netmask、gateway、dns1、dns2 |
+| `wifi` | enabled、ssid、password，以及独立 mode/address/netmask/gateway；可选 security 只接受 `wpa2-personal`，开放网络由空密码表示；不接受 DNS 字段 |
+| IPv4 | 严格四段十进制，无前导零；单播主机，连续 /1～/30 掩码，非零网关须同子网且不同于本机；可省略网关或使用 0.0.0.0 |
+| Wi-Fi SSID | 解码后 1～32 个 UTF-8 字节；仅 2.4GHz 开放网络或 WPA2-Personal |
+| Wi-Fi 密码 | 空字符串表示开放网络；WPA2 为 8～63 可打印 ASCII 字节或 64 位十六进制 PSK，不接受脱敏占位字符串 |
+| 省略字段 | 保留候选原值；NET GET 仅报告 password_set，不返回可回写的密码占位值 |
+| 禁用 Wi-Fi | enabled:false，可同时清空 SSID 和密码；不会修改 ETH 地址 |
+| 切回 DHCP | 设置相应 mode:"dhcp"；候选保留静态字段供编辑，实际地址以运行状态为准 |
+
+ETH/STA 地址配置相互独立；DHCP 不要求外网。保存配置与运行地址分别报告，不能把 candidate 或旧 DHCP 租约当作当前连接成功的证据。
+
+## 仅重置网络
+
+UART 发送以下命令前，须全停、无序列/上传/校准、其他控制者或配置事务：
+
+```text
+!NET RESET {"confirm":"NETWORK_ONLY"}
+```
+
+成功后恢复 ETH DHCP、禁用 STA、重新开启有界配网窗口。只删除网络当前及历史配置，保留显示、两轴零点、UART 波特率、管理 token、试运行 ID 及机械参数。擦除失败保持旧配置；擦除成功而运行恢复尚未完成时，新的网络写入暂拒，恢复继续重试。

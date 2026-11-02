@@ -109,6 +109,8 @@ gs232b_error_t gs232b_dispatcher_capture(gs232b_dispatcher_t *dispatcher,
 /**
  * @brief 接纳最多 256 字节并按来源顺序发送已就绪响应，普通命令由 tick 执行。
  * @note 错误不能越过此前请求；TX 或响应占位耗尽时关闭来源会话，控制者全停。
+ *       停止先执行；此前已接纳的查询在停机后取值，仍按来源输入顺序回复，
+ *       失效写请求不再执行。周期校准帧也使用发起会话的同一响应队列。
  */
 gs232b_error_t gs232b_dispatcher_feed(gs232b_dispatcher_t *dispatcher,
     gs232b_command_context_t context, const uint8_t *bytes, size_t size);

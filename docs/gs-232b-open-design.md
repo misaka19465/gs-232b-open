@@ -535,10 +535,10 @@ HTTP/WS 无 TLS，管理 token 不能提供链路加密；无线/有线非可信
 | `!CFG BEGIN` | 已实现：建立单一 RAM 候选并返回 ID；复制 active；并发事务返回 CONFLICT。 |
 | `!NET SET {...}` | 已实现：仅合并指定候选字段；省略字段保留；拒绝非法 IPv4、掩码和 WPA2 凭据及脱敏占位密码。 |
 | `!CFG CHECK` | 已实现：完整校验候选并返回 ETH/Wi-Fi 变更标志；不触发网络切换或保存。 |
-| `!CFG APPLY {"trial_s":120}` | 设计项，当前未实现；候选不能应用到运行配置。 |
+| `!CFG APPLY {"candidate_id":1,"timeout_s":120}` | 校验候选 ID、停机条件和可选 revision，启动有界试运行；返回 trial ID。 |
 | `!CFG STATUS` | 已实现：查询 active revision、候选 ID/base revision/deadline；不续期。 |
-| `!CFG CONFIRM {"trial_id":42}` | 设计项，当前未实现；未来用于新管理会话或 UART1 确认匹配试运行。 |
-| `!CFG ABORT` | 已实现：发起会话放弃自己的候选并清除凭据；当前无 trial 回滚。 |
+| `!CFG CONFIRM {"trial_id":42}` | 新授权会话或 UART1 确认匹配试运行；持久化成功才切换 active，同 ID 可幂等重试。 |
+| `!CFG ABORT` | 发起会话放弃自己的候选；附 `{"trial_id":42}` 时回滚匹配试运行。 |
 | `!PROV START {"timeout_s":600}` | 无运动等冲突时，启动有界 SoftAP；若已开启则返回现状，不能无限延长他人的试运行。 |
 | `!PROV STATUS` / `!PROV STOP` | 查窗口和地址 / 关闭 AP；密码仅 UART1 可查；STOP 在未确认 trial 中不得破坏恢复路径。 |
 | `!NET RESET {"confirm":"NETWORK_ONLY"}` | 仅 UART1、停止状态；清除网络域并进入未配网状态，不依赖按钮，不清机械配置。 |
@@ -549,6 +549,8 @@ HTTP/WS 无 TLS，管理 token 不能提供链路加密；无线/有线非可信
 | `!FAULT CLEAR` | 停机并确认故障条件消失后显式解除锁定；不会自动重跑旧目标。 |
 
 `!SESSION WATCHDOG` 超时必须执行与控制者失联相同的全停及任务清理；仅当前控制者成功的完整命令或 `!SESSION PING` 续期，旁路查询、无效命令和 WS Pong 均不能续期。建议可设范围 1000～600000ms，默认 0；上传长序列时客户端必须选足以覆盖合法低速传输的时限，或在停机时关闭此可选功能。
+
+上述命令已接到统一 dispatcher；授权矩阵、状态字段、网络域重置边界和自动化验收见 [管理命令与 WS 隔离](management-commands.md)。
 
 未 APPLY 的候选在发起会话关闭或 60 秒没有成功的配置写入/校验时丢弃；查询、非法修改和校验失败不续期。一旦进入 trial，计时和回滚独立于原会话，新授权连接/UART1 可凭 ID 接续确认。重复 CONFIRM 相同已确认 trial 可幂等返回结果；旧 ID、并发 revision 改动或错误 ID 必须拒绝。活动事务不能阻止读取状态或发送 S。
 
@@ -564,7 +566,7 @@ USB2 / UART1 设置 ETH 固定 IPv4：
 !CFG BEGIN
 !NET SET {"eth":{"mode":"static","address":"192.168.10.50","netmask":"255.255.255.0","gateway":"192.168.10.1","dns1":"192.168.10.1"}}
 !CFG CHECK
-!CFG APPLY {"trial_s":120}
+!CFG APPLY {"candidate_id":1,"timeout_s":120}
 !CFG STATUS
 !CFG CONFIRM {"trial_id":42}
 ```
@@ -575,9 +577,9 @@ USB2 / UART1 配置 Wi-Fi，或者在已开的 SoftAP 管理 WS 内配置：
 
 ```text
 !CFG BEGIN
-!NET SET {"wifi":{"enabled":true,"ssid":"YOUR_SSID","password":"YOUR_PASSWORD","security":"wpa2-personal"}}
+!NET SET {"wifi":{"enabled":true,"ssid":"YOUR_SSID","password":"YOUR_PASSWORD"}}
 !CFG CHECK
-!CFG APPLY {"trial_s":120}
+!CFG APPLY {"candidate_id":1,"timeout_s":120}
 !CFG STATUS
 !CFG CONFIRM {"trial_id":42}
 ```

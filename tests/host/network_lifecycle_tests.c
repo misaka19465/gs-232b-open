@@ -20,7 +20,7 @@ static bool test_concurrent_begin_and_stop(void)
     CHECK(f.sim.pwm_permille != 0);
     CHECK(response_contains(&f, 2, "!CFG STATUS\r", "\"candidate_id\":1"));
     CHECK(response_contains(&f, 1, "!NET GET\r", "\"candidate_id\":1"));
-    CHECK(gs_run(&f, 2, "S\r", "\r"));
+    CHECK(gs_run(&f, 1, "S\r", "\r"));
     CHECK(stopped(&f.sim));
     CHECK(gs232b_config_transaction_live(&f.dispatcher.network_config));
     CHECK(response_contains(&f, 0, "!CFG ABORT\r", "\"data\":{}"));
@@ -87,10 +87,10 @@ static bool test_close_generation_tx_failure_and_queued_commands(void)
     CHECK(gs232b_dispatcher_session_close(&f.dispatcher, old_session) == GS232B_ERROR_STALE_SESSION);
     CHECK(gs232b_config_transaction_live(&f.dispatcher.network_config));
     CHECK(gs_feed(&f, 0, "!NET SET {\"wifi\":{\"ssid\":\"cancelled\"}}\r") == GS232B_OK);
-    CHECK(gs_feed(&f, 2, "S\r") == GS232B_OK);
+    CHECK(gs_feed(&f, 1, "S\r") == GS232B_OK);
     CHECK(gs232b_dispatcher_tick(&f.dispatcher) == GS232B_OK);
     CHECK(gs_expect(&f, 0, "!{\"ok\":false,\"cmd\":\"NET SET\",\"error\":\"CONFLICT\"}\r\n"));
-    CHECK(gs_expect(&f, 2, "\r"));
+    CHECK(gs_expect(&f, 1, "\r"));
     CHECK(strcmp(f.dispatcher.network_config.candidate.wifi.ssid, "home") == 0);
     CHECK(gs232b_fake_sessions_fail_next(&f.io, f.sessions[0],
         GS232B_FAKE_SESSION_SEND, GS232B_ERROR_IO, 1) == GS232B_OK);

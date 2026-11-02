@@ -48,11 +48,26 @@ static bool read_only(const gs232b_extension_request_t *request)
 
 static gs232b_error_t check(void *ctx, const gs232b_extension_request_t *request)
 {
-    (void)ctx;
+    gs232b_dispatcher_t *dispatcher = ctx;
     if (read_only(request)) return GS232B_OK;
-    return request->transport == GS232B_TRANSPORT_UART1 ||
-        request->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS ?
-        GS232B_OK : GS232B_ERROR_NOT_AUTHORIZED;
+    gs232b_error_t error = gs232b_management_network_authorize(dispatcher, request);
+    if (error != GS232B_OK) return error;
+    if (dispatcher->network_reset_pending) return GS232B_ERROR_BUSY;
+    if (strcmp(request->cmd, "PROV STOP") == 0 &&
+        dispatcher->network_config.trial.state != GS232B_CONFIG_TRIAL_NONE) return GS232B_ERROR_CONFLICT;
+    if (strcmp(request->cmd, "PROV START") == 0) {
+        gs232b_json_value_t value;
+        uint32_t timeout = 0;
+        if (gs232b_json_get(request->arguments, "timeout_s", &value) == GS232B_OK &&
+            (gs232b_json_uint32(value, &timeout) != GS232B_OK ||
+             timeout > GS232B_PROVISIONING_MAX_WINDOW_SECONDS)) return GS232B_ERROR_INVALID_ARGUMENT;
+        gs232b_control_activity_t activity;
+        error = gs232b_control_activity(&dispatcher->control, &activity);
+        if (error != GS232B_OK) return error;
+        if (!gs232b_control_idle(&activity, dispatcher->control.sequence_state.state) ||
+            gs232b_session_key_valid(dispatcher->control.input_reservation.session)) return GS232B_ERROR_BUSY;
+    }
+    return GS232B_OK;
 }
 
 static const char *provisioning_state(gs232b_provisioning_state_t state)
@@ -76,7 +91,7 @@ static int provisioning_status(const gs232b_provisioning_t *provisioning, bool i
         (status.ap.netmask >> 8) & 255U, status.ap.netmask & 255U};
     const unsigned g[] = {(status.ap.gateway >> 24) & 255U, (status.ap.gateway >> 16) & 255U,
         (status.ap.gateway >> 8) & 255U, status.ap.gateway & 255U};
-    /* All generated AP fields are restricted to printable ASCII. */
+    /* NOTE: 生成的 AP 字段只包含可打印 ASCII。 */
     if (include_password) {
         return snprintf(output, capacity,
             "{\"state\":\"%s\",\"first_boot\":%s,\"auto_started\":%s,"
@@ -133,6 +148,8 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
 {
     gs232b_dispatcher_t *dispatcher = ctx;
     gs232b_config_transaction_t *transaction = &dispatcher->network_config;
+    if ((strcmp(request->cmd, "PROV START") == 0 || strcmp(request->cmd, "PROV STOP") == 0) &&
+        capacity < GS232B_EXTENSION_DATA_MAX_BYTES) return GS232B_ERROR_BUFFER_TOO_SMALL;
     if (strcmp(request->cmd, "PROV STATUS") == 0) {
         const int n = provisioning_status(&dispatcher->provisioning,
             request->transport == GS232B_TRANSPORT_UART1, (char *)data, capacity);
@@ -147,8 +164,10 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
             const gs232b_error_t error = gs232b_json_uint32(value, &timeout_seconds);
             if (error != GS232B_OK) return error;
         }
-        gs232b_error_t error = gs232b_provisioning_start(&dispatcher->provisioning,
-                                                          timeout_seconds);
+        gs232b_error_t error = GS232B_OK;
+        if (dispatcher->provisioning.status.state != GS232B_PROVISIONING_ACTIVE) {
+            error = gs232b_provisioning_start(&dispatcher->provisioning, timeout_seconds);
+        }
         if (error != GS232B_OK) return error;
         const int n = provisioning_status(&dispatcher->provisioning, false,
                                           (char *)data, capacity);

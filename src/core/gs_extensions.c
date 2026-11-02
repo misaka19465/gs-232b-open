@@ -13,7 +13,8 @@ static gs232b_error_t parse(gs232b_dispatcher_t *dispatcher,
     if (!slot->connected || !gs232b_session_key_equal(slot->key, request->context.session)) return GS232B_ERROR_STALE_SESSION;
     extension->context = request->context;
     extension->transport = slot->transport;
-    return GS232B_OK;
+    extension->management_only = slot->management_only;
+    return gs232b_management_access(dispatcher, extension);
 }
 
 gs232b_error_t gs232b_extension_validate_request(void *ctx,

@@ -11,6 +11,7 @@ typedef struct {
     httpd_send_func_t send_fn;
     uint32_t local_address;
     int address_family;
+    const char *origin;
     char bound_interface[IFNAMSIZ];
     bool native_ipv6;
     bool active, close_queued, bind_error;
@@ -22,6 +23,7 @@ typedef struct {
 typedef struct {
     httpd_config_t config;
     httpd_uri_t uri;
+    httpd_uri_t manage_uri;
     httpd_uri_t page_uri;
     const char *response_type, *response_body;
     const char *response_encoding;
@@ -42,6 +44,7 @@ extern fake_ws_t fake_ws;
 
 void fake_ws_reset(void);
 esp_err_t fake_ws_connect(int fd, uint32_t local_address);
+esp_err_t fake_ws_connect_uri(int fd, uint32_t local_address, const char *uri);
 void fake_ws_disconnect(int fd);
 void fake_ws_run_work(void);
 esp_err_t fake_ws_frame(int fd, httpd_ws_type_t type, bool final,

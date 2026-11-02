@@ -1,4 +1,5 @@
 #include "gs_dispatcher_internal.h"
+#include "management_crypto.h"
 
 static gs232b_dispatcher_session_t *session_slot(gs232b_dispatcher_t *dispatcher,
                                                   gs232b_session_key_t session)
@@ -181,7 +182,10 @@ gs232b_error_t gs232b_gs_flush(gs232b_dispatcher_t *dispatcher)
                 }
             }
             slot->head = (slot->head + 1U) % GS232B_DISPATCHER_REPLIES_PER_SESSION;
-            if (slot->extension_reply_id == reply->id) slot->extension_reply_id = 0;
+            if (slot->extension_reply_id == reply->id) {
+                gs232b_management_clear(slot->extension_data, sizeof(slot->extension_data));
+                slot->extension_reply_id = 0;
+            }
             --slot->count;
         }
         if (slot->failure != GS232B_OK) {

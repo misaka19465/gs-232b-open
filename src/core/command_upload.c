@@ -20,7 +20,7 @@ gs232b_error_t gs232b_control_upload_begin(void *ctx, uint16_t **angles)
     if (control->epoch_exhausted) {
         return GS232B_ERROR_RESOURCE_EXHAUSTED;
     }
-    if (slot->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
+    if (slot->management_only || slot->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
         return GS232B_ERROR_NOT_AUTHORIZED;
     }
     if (gs232b_session_key_valid(control->owner) &&

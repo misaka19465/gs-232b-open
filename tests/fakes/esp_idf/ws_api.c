@@ -44,6 +44,8 @@ esp_err_t httpd_register_uri_handler(httpd_handle_t server, const httpd_uri_t *u
     if (strcmp(uri->uri, "/") == 0) {
         fake_ws.page_uri = *uri;
         fake_ws.page_registered = true;
+    } else if (strcmp(uri->uri, "/ws/manage") == 0) {
+        fake_ws.manage_uri = *uri;
     } else {
         fake_ws.uri = *uri;
     }
@@ -77,6 +79,21 @@ int httpd_req_to_sockfd(httpd_req_t *request)
 {
     return (int)((fake_ws_socket_t *)request->aux - fake_ws.sockets);
 }
+size_t httpd_req_get_hdr_value_len(httpd_req_t *request, const char *name)
+{
+    assert(strcmp(name, "Origin") == 0);
+    const fake_ws_socket_t *socket = request->aux;
+    return socket->origin == NULL ? 0 : strlen(socket->origin);
+}
+esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *request, const char *name,
+    char *buffer, size_t capacity)
+{
+    const size_t size = httpd_req_get_hdr_value_len(request, name);
+    const fake_ws_socket_t *socket = request->aux;
+    if (capacity <= size || socket->origin == NULL) return ESP_FAIL;
+    memcpy(buffer, socket->origin, size + 1U);
+    return ESP_OK;
+}
 void *httpd_sess_get_ctx(httpd_handle_t server, int fd)
 {
     assert(server == &fake_ws && fd >= 0 && fd < (int)FAKE_WS_SOCKETS);
@@ -89,22 +106,27 @@ esp_err_t httpd_sess_set_send_override(httpd_handle_t server, int fd, httpd_send
     fake_ws.sockets[fd].send_fn = send_fn;
     return ESP_OK;
 }
-esp_err_t fake_ws_connect(int fd, uint32_t local_address)
+esp_err_t fake_ws_connect_uri(int fd, uint32_t local_address, const char *path)
 {
+    const httpd_uri_t *uri = strcmp(path, "/ws/manage") == 0 ? &fake_ws.manage_uri : &fake_ws.uri;
     fake_ws_socket_t *socket = &fake_ws.sockets[fd];
     assert(fake_ws.started && !socket->active);
     socket->local_address = local_address;
     socket->request = (httpd_req_t){.handle = &fake_ws, .method = HTTP_GET,
-        .user_ctx = fake_ws.uri.user_ctx, .aux = socket};
+        .user_ctx = uri->user_ctx, .aux = socket};
     socket->active = true;
     ++fake_ws.hooks;
-    esp_err_t error = fake_ws.uri.ws_pre_handshake_cb(&socket->request);
+    esp_err_t error = uri->ws_pre_handshake_cb(&socket->request);
     if (error == ESP_OK) {
         ++fake_ws.hooks;
-        error = fake_ws.uri.ws_post_handshake_cb(&socket->request);
+        error = uri->ws_post_handshake_cb(&socket->request);
     }
     if (error != ESP_OK) { fake_ws_disconnect(fd); }
     return error;
+}
+esp_err_t fake_ws_connect(int fd, uint32_t local_address)
+{
+    return fake_ws_connect_uri(fd, local_address, "/ws/gs232b");
 }
 void fake_ws_disconnect(int fd)
 {

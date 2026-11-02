@@ -16,6 +16,21 @@ enum { GS_REPLY_WAITING = 0, GS_REPLY_READY, GS_REPLY_QUERY, GS_REPLY_SKIP };
 
 /** @brief 注册内置 RAM 候选配置命令，不启动网络或访问持久存储。 */
 gs232b_error_t gs232b_network_register(gs232b_dispatcher_t *dispatcher);
+/** @brief 装载管理校验材料并注册管理命令，不授予网络会话身份。 */
+gs232b_error_t gs232b_management_register(gs232b_dispatcher_t *dispatcher);
+/** @brief 恢复管理认证材料并注册 ADMIN/SESSION AUTH。 */
+gs232b_error_t gs232b_admin_register(gs232b_dispatcher_t *dispatcher);
+/** @brief 检查 AP 窗口及扩展白名单；管理权限不等于运动所有权。 */
+gs232b_error_t gs232b_management_access(gs232b_dispatcher_t *dispatcher,
+    const gs232b_extension_request_t *request);
+/** @brief 无副作用检查网络写入身份，UART/AP/已认证 ETH/STA 分别处理。 */
+gs232b_error_t gs232b_management_network_authorize(gs232b_dispatcher_t *dispatcher,
+    const gs232b_extension_request_t *request);
+/** @brief 重试已持久清除网络域后的运行时切换，不再擦除其他存储域。 */
+gs232b_error_t gs232b_management_reset_tick(gs232b_dispatcher_t *dispatcher);
+/** @brief 编码管理只读快照，不采样、不写入且不续期。 */
+gs232b_error_t gs232b_management_status(gs232b_dispatcher_t *dispatcher,
+    const char *command, uint8_t *data, size_t capacity, size_t *size);
 
 /** @brief 严格识别普通 GS 命令；M/W 数字和校准交互由控制核心处理。 */
 gs_command_t gs232b_gs_command(const gs232b_control_request_t *request);

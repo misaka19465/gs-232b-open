@@ -1,15 +1,15 @@
 # WebSocket GS 传输适配
 
 入口见 [`esp_ws.h`](../include/gs232b/esp_ws.h)。基线为锁定的
-`espressif32@8.0.0` / ESP-IDF 6.1.0；服务监听 TCP 80 的 `/ws/gs232b`，
-ETH 和 STA 合计最多四个控制连接。`app_main` 仍是构建基线，板级启动组合由调用方接入。
+`espressif32@8.0.0` / ESP-IDF 6.1.0；服务监听 TCP 80 的 `/ws/gs232b` 和 `/ws/manage`，
+控制及管理合计最多四个网络连接。`app_main` 仍是构建基线，板级启动组合由调用方接入。
 
 ## 接入与任务边界
 
 1. 静态分配、清零 `gs232b_esp_ws_t`，先取得 `gs232b_esp_ws_io`，用于初始化唯一 dispatcher。
    与 UART 共存时由应用的 `io` 路由按完整会话键分派；不得按 fd 或 transport 广播。
 2. 用 `gs232b_esp_ws_open` 启动 HTTPD。控制任务通过 `gs232b_esp_ws_interface`
-   发布 ETH/STA 的当前 IPv4（主机序）、`esp_netif_get_netif_impl_name` 得到的 lwIP
+   发布 ETH/STA/SoftAP 的当前 IPv4（主机序）、`esp_netif_get_netif_impl_name` 得到的 lwIP
    接口名和对应生命周期快照的非零 `session_epoch`。不可用时发布地址 0 和 NULL 名称；
    地址、epoch 或接口名变化仅撤销该接口的旧连接。
 3. 同一控制任务持续运行 `gs232b_esp_ws_service` 和 `gs232b_dispatcher_tick`。
@@ -20,11 +20,19 @@ ETH 和 STA 合计最多四个控制连接。`app_main` 仍是构建基线，板
 
 HTTPD 回调只接收、排队、编码和发送，不运行 dispatcher、运动或持久化操作。
 pre-handshake 检查本地 socket 地址；锁定 SDK 默认 IPv6 dual-stack listener 时只接受
-能映射到已发布 IPv4 的 `::ffff:a.b.c.d` 目标，未发布的地址（包括管理 SoftAP）拒绝接入。
+能映射到已发布 IPv4 的 `::ffff:a.b.c.d` 目标，未发布的地址拒绝接入。
 同一个 IPv4 同时发布给两个接口时拒绝新连接，避免错误归属。识别出接口后，在返回 Upgrade
 响应前对已接受 socket 设置 `SO_BINDTODEVICE`，使用 `esp_netif_get_netif_impl_name` 提供的
 lwIP 接口名固定该 TCP 会话的后续出口；名称不合法或绑定失败时拒绝握手。记录同时保存入站
 transport、当时的本机 IPv4 和 lifecycle epoch，后续变更只关闭对应接口的会话。
+
+ETH/STA 可连接两个 WS 路径；`/ws/manage` 会话只接纳第 7 节扩展命令，拒绝普通 GS 行和 M/W
+上传预约。SoftAP 拒绝 `/ws/gs232b`，仅在活动配网窗口接纳 `/ws/manage`，并在命令接纳和执行前
+检查窗口及网络管理白名单。AP 无权申请运动所有权、操作故障锁定或进行 GS 校准。
+管理身份不自动取得运动所有权；ETH/STA 的网络写入仍须 `SESSION AUTH`。
+
+浏览器 Origin 必须等于本连接目标 IPv4 的 `http://a.b.c.d` 或 `http://a.b.c.d:80`；跨站 Origin、
+`null` 及超长值拒绝握手。无 Origin 的原生客户端可接入。当前不接受域名别名或 HTTPS Origin。
 
 ETH netif 路由优先级为 150，STA 为 100，因此两者都可用时 ETH 是默认路由；ETH 不可用时
 lwIP 可回退到 STA。优先级影响默认路由选择，不会迁移既有 TCP 连接；已建立的 WebSocket
@@ -69,8 +77,11 @@ free hook 发布物理关闭；控制任务撤销旧完整会话键后才回收�
 
 应用看门狗默认关闭。dispatcher 的 `watchdog_set` 接受 0 或 1000..600000ms，只有当前控制者可设置；
 成功的完整命令或显式 `watchdog_ping` 续期，旁路查询、非法命令、周期校准显示和 WS Pong 均不续期。
-tick 在执行普通请求前检查到期；迟到的应用心跳也不能复活已过期控制者。此改动提供控制任务 API，
-不扩展 GS 字节协议，`!SESSION ...` 文本命令仍不由官方 GS dispatcher 接纳。
+tick 在执行普通请求前检查到期；迟到的应用心跳也不能复活已过期控制者。
+同一规则也接到 `!SESSION WATCHDOG {"timeout_ms":...}` 和 `!SESSION PING`，通过完整命令行测试；
+其他会话的 GS/扩展查询均不续期。完整命令与传输心跳使用独立时间戳。
+
+管理命令响应、存储域及授权细节见 [管理命令与 WS 隔离](management-commands.md)。
 
 ## 验证
 
@@ -84,4 +95,7 @@ tick 在执行普通请求前检查到期；迟到的应用心跳也不能复活
 四连接上限、socket 接口绑定、ETH/STA 同时在线、地址变化、ETH 失效/恢复导致的默认路由切换、
 接口局部失效、重连 generation/epoch 隔离、非控制会话断开保留活动控制者、握手/分配/SDK 失败
 清理及应用看门狗。
+`ws_management_tests` 另覆盖两个 URI、AP 窗口的接纳/执行复查、所有 GS 运动与校准入口拒绝、
+ETH 管理会话扩展接线及 Origin 策略。`management_matrix_tests` 为第 7.2 节每个独立命令执行成功、
+无权及停止所致 epoch 冲突三种场景。
 这些是确定性的主机行为测试及真实 SDK 编译链接验证，不代表已完成硬件网络、堆余量或双网同子网出口实测。

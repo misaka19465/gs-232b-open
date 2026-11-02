@@ -23,7 +23,8 @@ typedef struct {
 static inline void ws_control_step(void *ctx)
 {
     gs232b_error_t result = gs232b_esp_ws_service(ctx);
-    if (result != GS232B_OK && result != GS232B_ERROR_WOULD_BLOCK) { abort(); }
+    if (result != GS232B_OK && result != GS232B_ERROR_WOULD_BLOCK &&
+        result != GS232B_ERROR_NOT_AUTHORIZED) { abort(); }
 }
 
 static inline bool ws_init(ws_fixture_t *f)

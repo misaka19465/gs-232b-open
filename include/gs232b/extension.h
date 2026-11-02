@@ -15,6 +15,7 @@ typedef struct {
     bool has_json;
     gs232b_command_context_t context;
     gs232b_transport_t transport;
+    bool management_only;
 } gs232b_extension_request_t;
 
 /**

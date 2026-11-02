@@ -24,6 +24,7 @@ typedef struct {
     size_t count;
     gs232b_error_t failure;
     uint64_t extension_reply_id;
+    bool management_authorized;
     uint8_t extension_data[GS232B_EXTENSION_DATA_MAX_BYTES];
     gs232b_dispatcher_reply_t replies[GS232B_DISPATCHER_REPLIES_PER_SESSION];
 } gs232b_dispatcher_session_t;
@@ -43,6 +44,11 @@ typedef struct {
     gs232b_session_key_t watchdog_session;
     gs232b_time_us_t watchdog_timeout_us;
     gs232b_time_us_t watchdog_renewed_us;
+    uint8_t admin_verifier[32];
+    uint64_t admin_revision;
+    bool admin_enabled;
+    bool network_reset_pending;
+    bool entries_available[4];
     bool initialized;
     gs232b_extension_registry_t extensions;
 } gs232b_dispatcher_t;
@@ -66,6 +72,11 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
 /** @brief 串行追加扩展处理器；复制命令名，借用 schema/ctx，重复注册返回 CONFLICT。 */
 gs232b_error_t gs232b_dispatcher_register_extension(gs232b_dispatcher_t *dispatcher,
     const gs232b_extension_handler_t *handler);
+
+/** @brief 打开仅接纳扩展命令的管理会话；保留真实 ETH/STA/AP 传输及完整会话键。 */
+gs232b_error_t gs232b_dispatcher_management_session_open(gs232b_dispatcher_t *dispatcher,
+    gs232b_transport_t transport, uint8_t *line_storage, size_t capacity,
+    gs232b_session_key_t *session);
 
 /** @brief 在打开任何会话前装载已确认的网络配置；不启动或重配任何网络接口。 */
 gs232b_error_t gs232b_dispatcher_network_configure(gs232b_dispatcher_t *dispatcher,
@@ -112,7 +123,7 @@ gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher);
 
 /**
  * @brief 当前控制者自愿设置应用看门狗，0 关闭，其他值为 1000..600000 毫秒。
- * @note 默认关闭；此控制任务 API 不新增 GS 扩展语法。仅该控制者成功完成的
+ * @note 默认关闭；也可经 !SESSION WATCHDOG/PING 调用。仅该控制者成功完成的
  *       完整命令或显式 watchdog_ping 续期；WS 控制帧及周期显示不续期。
  *       tick 在执行普通命令前检查期限，超时关闭该会话并执行所有者失联清理。
  */

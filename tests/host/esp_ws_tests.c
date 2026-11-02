@@ -5,6 +5,7 @@ bool ws_boundary_tests(void);
 bool ws_fault_tests(void);
 bool ws_network_tests(void);
 bool ws_watchdog_tests(void);
+bool ws_management_tests(void);
 
 static bool cross_message_and_multiple_commands(void)
 {
@@ -122,5 +123,5 @@ int main(void)
     return cross_message_and_multiple_commands() && fragmented_with_control_frames() &&
         zero_frames_and_invalid_fragments() && dual_stack_ipv4_mapped_admission() &&
         ws_boundary_tests() && ws_fault_tests() && ws_network_tests() &&
-        ws_watchdog_tests() ? EXIT_SUCCESS : EXIT_FAILURE;
+        ws_watchdog_tests() && ws_management_tests() ? EXIT_SUCCESS : EXIT_FAILURE;
 }

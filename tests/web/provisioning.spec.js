@@ -10,7 +10,7 @@ test('network list sorts, deduplicates, ends with Other, and refreshes offline a
   await page.goto('/provisioning.html');
   await expect(page.locator('#networks .network-row')).toHaveCount(4);
   await expect(page.locator('#networks .network-row').first()).toContainText('Radio House');
-  await expect(page.locator('mdui-list-item').last()).toContainText('其他...');
+  await expect(page.locator('mdui-list-item').last()).toHaveAttribute('id', 'other-network');
   await expect(page.locator('mdui-list')).toHaveCount(1);
   await page.locator('#refresh').click();
   await expect.poll(() => state.scans).toBe(2);
@@ -21,7 +21,7 @@ test('network list sorts, deduplicates, ends with Other, and refreshes offline a
 test('an empty scan keeps Other available and clears the empty message after refresh', async ({ page }) => {
   const state = await mockDevice(page, { aps: [] });
   await page.goto('/provisioning.html');
-  await expect(page.locator('#scan-message')).toContainText('未发现网络');
+  await expect(page.locator('#scan-message')).toContainText('未发现可用网络');
   await expect(page.locator('#other-network')).toBeVisible();
   await expect(page.locator('#networks .network-row')).toHaveCount(0);
   state.aps = [{ ssid: 'Available Again', rssi: -40, auth: 0 }];

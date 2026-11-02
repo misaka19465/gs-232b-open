@@ -54,6 +54,7 @@ static inline bool setup(gs_fixture_t *fixture, runtime_t *runtime)
     CHECK(gs232b_dispatcher_network_configure(&fixture->dispatcher, &active, 7, port) == GS232B_OK);
     CHECK(gs232b_dispatcher_network_apply_configure(&fixture->dispatcher,
         (gs232b_net_apply_port_t){.ctx = runtime, .apply = runtime_apply}) == GS232B_OK);
+    CHECK(gs232b_provisioning_start(&fixture->dispatcher.provisioning, 0) == GS232B_OK);
     runtime->eth.state = GS232B_ETHERNET_READY;
     runtime->eth.link_up = true;
     runtime->eth.ipv4_valid = true;

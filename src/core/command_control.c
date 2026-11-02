@@ -339,8 +339,8 @@ gs232b_error_t gs232b_control_take(gs232b_control_t *control,
     if (control->stop_mask != 0) {
         return GS232B_ERROR_BUSY;
     }
-    if (gs232b_control_find(control, context.session)->transport ==
-        GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
+    const gs232b_control_session_t *slot = gs232b_control_find(control, context.session);
+    if (slot->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
         return GS232B_ERROR_NOT_AUTHORIZED;
     }
     if (gs232b_session_key_valid(control->owner) &&

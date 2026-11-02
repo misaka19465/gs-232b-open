@@ -9,7 +9,7 @@ export class ManagementChannel {
   get ready() { return this.socket?.readyState === WebSocket.OPEN; }
 
   connect() {
-    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/gs232b`);
+    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/manage`);
     this.socket = socket;
     socket.binaryType = 'arraybuffer';
     const decoder = new TextDecoder();

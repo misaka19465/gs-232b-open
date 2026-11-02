@@ -1,11 +1,28 @@
 #include "esp_ws_internal.h"
 
 #include <string.h>
+#include <stdio.h>
 #include "esp_timer.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 
 _Static_assert(GS232B_WS_INTERFACE_NAME_BYTES == IFNAMSIZ, "Revalidate lwIP interface name size");
+
+static bool origin_allowed(httpd_req_t *request, uint32_t address)
+{
+    const size_t size = httpd_req_get_hdr_value_len(request, "Origin");
+    if (size == 0) return true;
+    char origin[64], expected[48];
+    if (size >= sizeof(origin) ||
+        httpd_req_get_hdr_value_str(request, "Origin", origin, sizeof(origin)) != ESP_OK) return false;
+    const int count = snprintf(expected, sizeof(expected), "http://%u.%u.%u.%u",
+        (unsigned)(address >> 24), (unsigned)((address >> 16) & 255U),
+        (unsigned)((address >> 8) & 255U), (unsigned)(address & 255U));
+    if (count < 0 || (size_t)count + 3U >= sizeof(expected)) return false;
+    if (strcmp(origin, expected) == 0) return true;
+    memcpy(expected + count, ":80", 4);
+    return strcmp(origin, expected) == 0;
+}
 
 void gs232b_ws_disconnected(void *ctx)
 {
@@ -15,7 +32,8 @@ void gs232b_ws_disconnected(void *ctx)
 
 esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
 {
-    gs232b_esp_ws_t *adapter = request->user_ctx;
+    gs232b_ws_uri_context_t *uri = request->user_ctx;
+    gs232b_esp_ws_t *adapter = uri->adapter;
     struct sockaddr_storage local;
     socklen_t length = sizeof(local);
     const int fd = httpd_req_to_sockfd(request);
@@ -47,7 +65,8 @@ esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
             interface = (int)i;
         }
     }
-    if (interface != -1) {
+    if (interface != -1 && (uri->management ||
+        interface != (int)(GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS - GS232B_TRANSPORT_ETHERNET_WS))) {
         for (size_t i = 0; i < GS232B_WS_CLIENTS; ++i) {
             if (!atomic_load(&adapter->clients[i].occupied)) {
                 client = &adapter->clients[i];
@@ -57,7 +76,7 @@ esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
         }
     }
     (void)xSemaphoreGive(adapter->lock);
-    if (client == NULL) { return ESP_FAIL; }
+    if (client == NULL || !origin_allowed(request, address)) { return ESP_FAIL; }
 
     struct ifreq binding = {0};
     size_t name_length = 0;
@@ -89,6 +108,7 @@ esp_err_t gs232b_ws_pre_handshake(httpd_req_t *request)
     client->fd = fd;
     client->interface = snapshot;
     client->transport = (gs232b_transport_t)(GS232B_TRANSPORT_ETHERNET_WS + interface);
+    client->management = uri->management;
     client->message_size = client->control_head = client->control_count = 0;
     client->wire_size = client->wire_sent = 0;
     client->fragmented = client->awaiting_pong = client->shutdown_sent = false;

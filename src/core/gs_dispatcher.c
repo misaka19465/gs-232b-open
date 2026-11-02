@@ -103,16 +103,25 @@ gs232b_error_t gs232b_dispatcher_init(gs232b_dispatcher_t *dispatcher,
         motion->manager->clock, NULL, 0, true, (gs232b_net_status_port_t){0},
         (gs232b_provisioning_ap_port_t){0}, NULL);
     if (error == GS232B_OK) error = gs232b_network_register(dispatcher);
+    if (error == GS232B_OK) error = gs232b_management_register(dispatcher);
     dispatcher->initialized = error == GS232B_OK;
     return error;
 }
 
-gs232b_error_t gs232b_dispatcher_session_open(gs232b_dispatcher_t *dispatcher,
+static gs232b_error_t session_open(gs232b_dispatcher_t *dispatcher,
     gs232b_transport_t transport, uint8_t *line_storage, size_t capacity,
-    gs232b_session_key_t *session)
+    gs232b_session_key_t *session, bool management_only)
 {
     if (dispatcher == NULL || !dispatcher->initialized) {
         return GS232B_ERROR_INVALID_ARGUMENT;
+    }
+    if (transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
+        gs232b_provisioning_status_t status;
+        if (gs232b_provisioning_snapshot(&dispatcher->provisioning, &status) != GS232B_OK ||
+            status.state != GS232B_PROVISIONING_ACTIVE || status.remaining_us == 0) {
+            return GS232B_ERROR_NOT_AUTHORIZED;
+        }
+        management_only = true;
     }
     gs232b_error_t error = gs232b_control_session_open(&dispatcher->control, transport,
         line_storage, capacity, session);
@@ -121,13 +130,30 @@ gs232b_error_t gs232b_dispatcher_session_open(gs232b_dispatcher_t *dispatcher,
     }
     dispatcher->sessions[session->session_id - 1U] =
         (gs232b_dispatcher_session_t){.key = *session};
+    dispatcher->control.sessions[session->session_id - 1U].management_only = management_only;
     static const uint8_t banner[] = "Connect OK\r\n";
     error = gs232b_session_send(&dispatcher->io, *session, banner, sizeof(banner) - 1U);
     if (error != GS232B_OK) {
         gs232b_dispatcher_session_close(dispatcher, *session);
         *session = (gs232b_session_key_t){0};
+    } else if (transport == GS232B_TRANSPORT_UART1) {
+        dispatcher->entries_available[transport] = true;
     }
     return error;
+}
+
+gs232b_error_t gs232b_dispatcher_session_open(gs232b_dispatcher_t *dispatcher,
+    gs232b_transport_t transport, uint8_t *line_storage, size_t capacity,
+    gs232b_session_key_t *session)
+{
+    return session_open(dispatcher, transport, line_storage, capacity, session, false);
+}
+
+gs232b_error_t gs232b_dispatcher_management_session_open(gs232b_dispatcher_t *dispatcher,
+    gs232b_transport_t transport, uint8_t *line_storage, size_t capacity,
+    gs232b_session_key_t *session)
+{
+    return session_open(dispatcher, transport, line_storage, capacity, session, true);
 }
 
 gs232b_error_t gs232b_dispatcher_session_close(gs232b_dispatcher_t *dispatcher,
@@ -142,6 +168,12 @@ gs232b_error_t gs232b_dispatcher_session_close(gs232b_dispatcher_t *dispatcher,
         return GS232B_ERROR_STALE_SESSION;
     }
     const gs232b_error_t control_error = gs232b_control_session_close(&dispatcher->control, session);
+    bool uart_available = false;
+    for (size_t i = 0; i < GS232B_CONTROL_MAX_SESSIONS; ++i) {
+        const gs232b_control_session_t *live = &dispatcher->control.sessions[i];
+        if (live->connected && live->transport == GS232B_TRANSPORT_UART1) uart_available = true;
+    }
+    dispatcher->entries_available[GS232B_TRANSPORT_UART1] = uart_available;
     gs232b_config_transaction_close(&dispatcher->network_config, session);
     const gs232b_error_t io_error = gs232b_session_close(&dispatcher->io, session);
     *slot = (gs232b_dispatcher_session_t){0};
@@ -169,6 +201,7 @@ gs232b_error_t gs232b_dispatcher_feed(gs232b_dispatcher_t *dispatcher,
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     (void)gs232b_config_trial_tick(&dispatcher->network_config, dispatcher->network_apply);
+    (void)gs232b_management_reset_tick(dispatcher);
     (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning,
         dispatcher->network_config.trial.state != GS232B_CONFIG_TRIAL_NONE);
     (void)gs232b_provisioning_tick(&dispatcher->provisioning);
@@ -202,6 +235,7 @@ gs232b_error_t gs232b_dispatcher_tick(gs232b_dispatcher_t *dispatcher)
         return GS232B_ERROR_INVALID_ARGUMENT;
     }
     (void)gs232b_config_trial_tick(&dispatcher->network_config, dispatcher->network_apply);
+    (void)gs232b_management_reset_tick(dispatcher);
     (void)gs232b_provisioning_set_trial_active(&dispatcher->provisioning,
         dispatcher->network_config.trial.state != GS232B_CONFIG_TRIAL_NONE);
     (void)gs232b_provisioning_tick(&dispatcher->provisioning);
@@ -240,6 +274,7 @@ gs232b_error_t gs232b_dispatcher_watchdog_ping(gs232b_dispatcher_t *dispatcher,
         gs232b_session_key_equal(dispatcher->watchdog_session, session) &&
         (now < dispatcher->watchdog_renewed_us ||
          now - dispatcher->watchdog_renewed_us >= dispatcher->watchdog_timeout_us)) {
+        if (dispatcher->control.dispatching) return GS232B_ERROR_TIMEOUT;
         const gs232b_error_t closed = gs232b_dispatcher_session_close(dispatcher, session);
         return closed == GS232B_OK ? GS232B_ERROR_TIMEOUT : closed;
     }

@@ -2,7 +2,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../scripts/ensure_web.cmake")
 
 idf_component_register(
     SRCS "app_main.c" "core/types.c" "core/ports.c" "core/line_parser.c"
-         "core/extension.c" "core/extension_json.c" "core/gs_extensions.c"
+         "core/extension.c" "core/extension_json.c" "core/gs_extensions.c" "core/gs_management.c" "core/gs_admin.c"
          "core/network_config.c" "core/network_fields.c" "core/network_replies.c" "core/gs_network.c"
          "core/response_encoder.c" "core/coordinates.c" "core/feedback.c"
          "core/persistence.c" "core/output_manager.c" "core/motion.c" "core/speed.c"
@@ -22,9 +22,11 @@ idf_component_register(
          "platform/esp_uart_capture.c" "platform/esp_uart_boot.c"
          "platform/esp_ws.c" "platform/esp_ws_rx.c" "platform/esp_ws_tx.c"
          "platform/provisioning_page.c"
+         "platform/management_crypto.c"
+         "core/management_replies.c"
     INCLUDE_DIRS "." "../include"
     EMBED_FILES "web/provisioning.html.gz"
     REQUIRES esp_driver_spi esp_driver_gpio esp_driver_ledc esp_driver_uart esp_eth esp_timer esp_adc
              nvs_flash esp_wifi w5500 esp_driver_rmt esp_netif esp_event lwip esp_hw_support
-             esp_http_server
+             esp_http_server mbedtls esp_app_format
 )

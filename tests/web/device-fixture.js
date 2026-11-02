@@ -10,7 +10,7 @@ export async function mockDevice(page, options = {}) {
       { ssid: 'Radio House', rssi: -80, auth: 3 },
     ], ...options,
   };
-  await page.routeWebSocket('**/ws/gs232b', ws => {
+  await page.routeWebSocket('**/ws/manage', ws => {
     state.socket = ws;
     ws.onMessage(message => {
       const command = String(message).replace(/^!/, '').trim();

@@ -389,12 +389,15 @@ endif()
 add_test(NAME persistence COMMAND persistence_tests)
 set_tests_properties(persistence PROPERTIES TIMEOUT 5)
 
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+
 foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tests
                              command_invalidation_tests sequence_upload_tests
                              sequence_commit_tests sequence_timing_tests
                              sequence_lifecycle_tests sequence_fault_tests
                              calibration_tests calibration_lifecycle_tests
-                             gs_commands_tests gs_sessions_tests gs_extensions_tests gs_network_tests gs_calibration_tests
+                             gs_commands_tests gs_sessions_tests gs_extensions_tests gs_network_tests
+                             gs_management_tests gs_admin_tests gs_reset_tests gs_calibration_tests
                              gs_sequences_tests esp_uart_tests esp_uart_boot_tests
                              esp_uart_capture_tests transport_fault_tests esp_ws_tests)
     add_executable(${motion_test}
@@ -419,6 +422,8 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/response_encoder.c
         ../../src/core/extension.c ../../src/core/extension_json.c
         ../../src/core/gs_extensions.c
+        ../../src/core/gs_management.c ../../src/core/gs_admin.c
+        ../../src/core/management_replies.c ../../src/platform/management_crypto.c
         ../../src/core/network_config.c ../../src/core/network_fields.c ../../src/core/provisioning.c
         ../../src/core/provisioning_scan.c
         ../../src/core/network_replies.c ../../src/core/gs_network.c
@@ -432,9 +437,14 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         ../../src/core/gs_replies.c
     )
     target_include_directories(${motion_test} PRIVATE ../../include ../fakes)
+    target_compile_definitions(${motion_test} PRIVATE GS232B_HOST_CRYPTO)
+    target_link_libraries(${motion_test} PRIVATE OpenSSL::Crypto)
     if(motion_test STREQUAL "gs_network_tests")
         target_sources(${motion_test} PRIVATE network_validation_tests.c network_lifecycle_tests.c
             network_ipv4_tests.c network_scan_tests.c)
+    endif()
+    if(motion_test STREQUAL "gs_management_tests")
+        target_sources(${motion_test} PRIVATE management_matrix_tests.c)
     endif()
     if(motion_test STREQUAL "esp_ws_tests")
         # NOTE: 与固件共享 HTML 源文件，原生测试不依赖 ESP-IDF 的交叉汇编器。
@@ -445,7 +455,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/provisioning_html.h"
             CONTENT "static const unsigned char provisioning_html[] = {${provisioning_bytes}};\n")
         target_sources(${motion_test} PRIVATE ws_boundary_tests.c ws_fault_tests.c ws_network_tests.c
-            ws_watchdog_tests.c
+            ws_watchdog_tests.c ws_management_tests.c
             ../../src/platform/esp_ws.c ../../src/platform/esp_ws_rx.c ../../src/platform/esp_ws_tx.c
             ../../src/platform/provisioning_page.c
             ../fakes/esp_idf/ws_api.c ../fakes/esp_idf/ws_rtos.c)

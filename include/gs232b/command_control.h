@@ -114,6 +114,7 @@ typedef struct {
     uint64_t generation;
     gs232b_session_key_t key;
     gs232b_transport_t transport;
+    bool management_only;
     bool connected;
     gs232b_line_parser_t parser;
     gs232b_command_context_t partial_context;

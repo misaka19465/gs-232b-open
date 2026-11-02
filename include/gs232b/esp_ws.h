@@ -10,6 +10,7 @@
 #include "freertos/semphr.h"
 
 #define GS232B_WS_URI "/ws/gs232b"
+#define GS232B_WS_MANAGE_URI "/ws/manage"
 #define GS232B_WS_CLIENTS 4U
 #define GS232B_WS_MESSAGE_BYTES 16384U
 #define GS232B_WS_TX_BYTES 4096U
@@ -40,6 +41,10 @@ typedef struct {
 } gs232b_ws_interface_t;
 
 struct gs232b_esp_ws;
+typedef struct {
+    struct gs232b_esp_ws *adapter;
+    bool management;
+} gs232b_ws_uri_context_t;
 /* NOTE: 私有布局仅供静态分配。HTTPD 独占分片、心跳和 wire；控制任务独占
  * session。队列、接口快照和 rx_context 通过 lock 共享，状态标志使用原子操作。
  * CLOSED 经控制任务撤销会话后才回收，避免 fd/槽复用继承旧输入和所有权。 */
@@ -58,6 +63,7 @@ typedef struct {
     uint8_t line[GS232B_LINE_STORAGE_BYTES];
     size_t message_size;
     bool fragmented;
+    bool management;
     gs232b_ws_control_t controls[GS232B_WS_CONTROL_PACKETS];
     size_t control_head, control_count;
     uint8_t wire[GS232B_WS_CHUNK_BYTES + 10U];
@@ -76,6 +82,7 @@ typedef struct gs232b_esp_ws {
     gs232b_dispatcher_t *dispatcher;
     gs232b_ws_client_t clients[GS232B_WS_CLIENTS];
     gs232b_ws_interface_t interfaces[3];
+    gs232b_ws_uri_context_t uri_contexts[2];
     size_t cursor;
     gs232b_ws_client_t *opening;
     atomic_bool pump_pending;
@@ -89,7 +96,7 @@ typedef struct gs232b_esp_ws {
  */
 gs232b_session_io_t gs232b_esp_ws_io(gs232b_esp_ws_t *adapter);
 /**
- * @brief 在 TCP 80 启动共享 HTTPD，注册 GS WebSocket 入口，最多四个网络会话。
+ * @brief 在 TCP 80 启动共享 HTTPD，注册控制及管理 WebSocket，合计最多四个会话。
  * @param adapter 清零且生命周期覆盖 HTTPD 及借用端口的独占实例。
  * @param dispatcher 已用上述 io 或会话路由初始化的唯一 dispatcher。
  * @note 开启 WS、pre/post handshake，关闭阻塞 work queue。SDK 6.1 在 Upgrade
@@ -101,7 +108,8 @@ gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t 
  * @brief 发布 ETH/STA/SoftAP 本机 IPv4（主机序）、lwIP netif 名称及非零 session_epoch。
  * @param if_name 由 esp_netif_get_netif_impl_name 获取；address=0 时可为 NULL。
  * @note 由控制任务在 service 前调用；只使该接口旧连接失效。未发布的本机地址
- *       不接受 GS 连接，包括管理 SoftAP；同 IP 的两个接口因无法识别来源而拒绝。
+ *       不接受连接；SoftAP 仅接受 /ws/manage 且须有活动配网窗口。管理会话只接纳
+ *       扩展命令，ETH/STA 可从两条 URI 使用扩展；同 IP 的两个接口拒绝新连接。
  *       每个接受的 TCP socket 在 Upgrade 前以 SO_BINDTODEVICE 绑定此接口；绑定失败拒绝连接。
  */
 gs232b_error_t gs232b_esp_ws_interface(gs232b_esp_ws_t *adapter,

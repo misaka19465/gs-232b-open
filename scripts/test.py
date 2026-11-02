@@ -128,12 +128,12 @@ def check_websocket_link() -> None:
     settings = json.loads((build / "config/sdkconfig.json").read_text())
     required_settings = (
         "HTTPD_WS_SUPPORT", "HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT",
-        "HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT",
+        "HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT", "COMPILER_OPTIMIZATION_SIZE",
     )
     if not all(settings.get(key) is True for key in required_settings) or settings.get(
         "HTTPD_QUEUE_WORK_BLOCKING"
     ):
-        raise RuntimeError("WebSocket requires WS pre/post hooks and a nonblocking work queue")
+        raise RuntimeError("WebSocket requires WS pre/post hooks, size optimization and a nonblocking work queue; regenerate stale sdkconfig")
     description = json.loads((build / "project_description.json").read_text())
     compiler = Path(description["c_compiler"])
     nm = compiler.with_name(compiler.name.removesuffix("gcc") + "nm")
@@ -145,6 +145,9 @@ def check_websocket_link() -> None:
         "gs232b_esp_ws_open", "gs232b_esp_ws_io", "gs232b_esp_ws_interface",
         "gs232b_esp_ws_service", "gs232b_esp_ws_close", "gs232b_ws_pre_handshake",
         "gs232b_ws_post_handshake", "gs232b_ws_receive", "gs232b_ws_pump",
+        "gs232b_dispatcher_management_session_open", "gs232b_management_register",
+        "gs232b_management_status", "gs232b_admin_register", "gs232b_management_digest",
+        "psa_generate_random", "psa_hash_compute",
         "gs232b_provisioning_page", "_binary_provisioning_html_gz_start",
         "_binary_provisioning_html_gz_end", "httpd_resp_send",
         "gs232b_provisioning_scan_page",

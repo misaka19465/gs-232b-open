@@ -34,8 +34,8 @@ static bool pong_never_renews_application_watchdog(void)
     CHECK(ws_connect(&f, 0, WS_ETH_IP));
     CHECK(ws_connect(&f, 1, WS_STA_IP));
     CHECK(ws_command(&f, 0, "R\r", "\r"));
-    const gs232b_session_key_t owner = ws_client(&f, 0)->session;
-    CHECK(gs232b_dispatcher_watchdog_set(&f.dispatcher, owner, 6000) == GS232B_OK);
+    CHECK(ws_command(&f, 0, "!SESSION WATCHDOG {\"timeout_ms\":6000}\r",
+        "!{\"ok\":true,\"cmd\":\"SESSION WATCHDOG\",\"data\":{\"timeout_ms\":6000,\"enabled\":true}}\r\n"));
     CHECK(gs232b_dispatcher_watchdog_set(&f.dispatcher, ws_client(&f, 1)->session, 6000) ==
         GS232B_ERROR_NOT_OWNER);
     const gs232b_time_us_t renewed = f.dispatcher.watchdog_renewed_us;
@@ -72,13 +72,15 @@ static bool valid_commands_and_application_ping_renew(void)
     CHECK(ws_command(&f, 0, "R\r", "\r"));
     const gs232b_session_key_t owner = ws_client(&f, 0)->session;
     CHECK(gs232b_dispatcher_watchdog_set(&f.dispatcher, owner, 999) == GS232B_ERROR_INVALID_ARGUMENT);
-    CHECK(gs232b_dispatcher_watchdog_set(&f.dispatcher, owner, 1000) == GS232B_OK);
+    CHECK(ws_command(&f, 0, "!SESSION WATCHDOG {\"timeout_ms\":1000}\r",
+        "!{\"ok\":true,\"cmd\":\"SESSION WATCHDOG\",\"data\":{\"timeout_ms\":1000,\"enabled\":true}}\r\n"));
     f.sim.now_us += 500000;
     fake_ws.now_us = f.sim.now_us;
     CHECK(ws_command(&f, 0, "C\r", "AZ=090\r\n"));
     CHECK(f.dispatcher.watchdog_renewed_us == f.sim.now_us);
     f.sim.now_us += 500000;
-    CHECK(gs232b_dispatcher_watchdog_ping(&f.dispatcher, owner) == GS232B_OK);
+    CHECK(ws_command(&f, 0, "!SESSION PING\r",
+        "!{\"ok\":true,\"cmd\":\"SESSION PING\",\"data\":{\"timeout_ms\":1000,\"enabled\":true}}\r\n"));
     CHECK(f.dispatcher.watchdog_renewed_us == f.sim.now_us);
     CHECK(gs232b_dispatcher_watchdog_set(&f.dispatcher, owner, 0) == GS232B_OK);
     f.sim.now_us += 1000001;

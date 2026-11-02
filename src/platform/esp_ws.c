@@ -82,6 +82,8 @@ gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t 
     adapter->lock = xSemaphoreCreateMutex();
     if (adapter->lock == NULL) { return GS232B_ERROR_RESOURCE_EXHAUSTED; }
     adapter->dispatcher = dispatcher;
+    adapter->uri_contexts[0] = (gs232b_ws_uri_context_t){adapter, false};
+    adapter->uri_contexts[1] = (gs232b_ws_uri_context_t){adapter, true};
     for (size_t i = 0; i < GS232B_WS_CLIENTS; ++i) {
         adapter->clients[i].adapter = adapter;
         adapter->clients[i].ready = xSemaphoreCreateBinary();
@@ -103,11 +105,21 @@ gs232b_error_t gs232b_esp_ws_open(gs232b_esp_ws_t *adapter, gs232b_dispatcher_t 
     if (error == ESP_OK) {
         const httpd_uri_t uri = {
             .uri = GS232B_WS_URI, .method = HTTP_GET, .handler = gs232b_ws_receive,
-            .user_ctx = adapter, .is_websocket = true, .handle_ws_control_frames = true,
+            .user_ctx = &adapter->uri_contexts[0], .is_websocket = true, .handle_ws_control_frames = true,
             .ws_pre_handshake_cb = gs232b_ws_pre_handshake,
             .ws_post_handshake_cb = gs232b_ws_post_handshake
         };
         error = httpd_register_uri_handler(adapter->server, &uri);
+        if (error == ESP_OK) {
+            const httpd_uri_t manage = {
+                .uri = GS232B_WS_MANAGE_URI, .method = HTTP_GET, .handler = gs232b_ws_receive,
+                .user_ctx = &adapter->uri_contexts[1], .is_websocket = true,
+                .handle_ws_control_frames = true,
+                .ws_pre_handshake_cb = gs232b_ws_pre_handshake,
+                .ws_post_handshake_cb = gs232b_ws_post_handshake
+            };
+            error = httpd_register_uri_handler(adapter->server, &manage);
+        }
         if (error == ESP_OK) {
             const httpd_uri_t page = {
                 .uri = "/", .method = HTTP_GET,
@@ -145,6 +157,7 @@ gs232b_error_t gs232b_esp_ws_interface(gs232b_esp_ws_t *adapter,
     if (!adapter->opened) { return GS232B_ERROR_NOT_READY; }
     if (xSemaphoreTake(adapter->lock, 0) != pdPASS) { return GS232B_ERROR_WOULD_BLOCK; }
     adapter->interfaces[transport - GS232B_TRANSPORT_ETHERNET_WS] = next;
+    adapter->dispatcher->entries_available[transport] = address != 0;
     for (size_t i = 0; i < GS232B_WS_CLIENTS; ++i) {
         gs232b_ws_client_t *client = &adapter->clients[i];
         if (atomic_load(&client->occupied) && client->transport == transport &&
@@ -160,6 +173,13 @@ gs232b_error_t gs232b_esp_ws_interface(gs232b_esp_ws_t *adapter,
 static gs232b_error_t lifecycle(gs232b_esp_ws_t *adapter, gs232b_ws_client_t *client)
 {
     gs232b_error_t result = GS232B_OK;
+    if (client->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS &&
+        atomic_load(&client->session_ready)) {
+        gs232b_provisioning_status_t status;
+        (void)gs232b_provisioning_snapshot(&adapter->dispatcher->provisioning, &status);
+        if ((status.state != GS232B_PROVISIONING_ACTIVE || status.remaining_us == 0) &&
+            !atomic_load(&client->send_pending)) atomic_store(&client->close_requested, true);
+    }
     const uint32_t now_ms = (uint32_t)((uint64_t)esp_timer_get_time() / 1000U);
     /* NOTE: 截止时间由控制任务独立检查。HTTPD 被慢 RX 占用、pump 尚未执行时，
      * 仍必须及时停止失联控制者；32 位毫秒差值允许单调计时器跨回绕。 */
@@ -189,8 +209,10 @@ static gs232b_error_t lifecycle(gs232b_esp_ws_t *adapter, gs232b_ws_client_t *cl
     if (atomic_exchange(&client->pending, false)) {
         adapter->opening = client;
         gs232b_session_key_t session;
-        result = gs232b_dispatcher_session_open(adapter->dispatcher, client->transport,
-            client->line, sizeof(client->line), &session);
+        result = client->management ? gs232b_dispatcher_management_session_open(
+            adapter->dispatcher, client->transport, client->line, sizeof(client->line), &session) :
+            gs232b_dispatcher_session_open(adapter->dispatcher, client->transport,
+                client->line, sizeof(client->line), &session);
         adapter->opening = NULL;
         if (result == GS232B_OK && !gs232b_session_key_equal(session, client->session)) {
             (void)gs232b_dispatcher_session_close(adapter->dispatcher, session);
@@ -269,6 +291,11 @@ gs232b_error_t gs232b_esp_ws_close(gs232b_esp_ws_t *adapter)
     }
     for (size_t i = 0; i < GS232B_WS_CLIENTS; ++i) {
         if (adapter->clients[i].ready != NULL) { vSemaphoreDelete(adapter->clients[i].ready); }
+    }
+    if (adapter->dispatcher != NULL) {
+        for (size_t i = GS232B_TRANSPORT_ETHERNET_WS; i <= GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS; ++i) {
+            adapter->dispatcher->entries_available[i] = false;
+        }
     }
     if (adapter->lock != NULL) { vSemaphoreDelete(adapter->lock); }
     memset(adapter, 0, sizeof(*adapter));

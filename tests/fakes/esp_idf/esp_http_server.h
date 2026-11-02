@@ -64,4 +64,6 @@ esp_err_t httpd_queue_work(httpd_handle_t server, httpd_work_fn_t work, void *ct
 esp_err_t httpd_resp_set_type(httpd_req_t *, const char *);
 esp_err_t httpd_resp_set_hdr(httpd_req_t *, const char *, const char *);
 esp_err_t httpd_resp_send(httpd_req_t *, const char *, ssize_t);
+size_t httpd_req_get_hdr_value_len(httpd_req_t *, const char *);
+esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *, const char *, char *, size_t);
 #endif

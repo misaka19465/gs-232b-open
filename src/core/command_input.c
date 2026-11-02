@@ -102,6 +102,10 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
     if (error != GS232B_OK) {
         return error;
     }
+    const gs232b_control_session_t *slot = gs232b_control_find(control, request->context.session);
+    if (request->kind == GS232B_LINE_GS && slot->management_only) {
+        return GS232B_ERROR_NOT_AUTHORIZED;
+    }
     if (request->position != NULL) {
         request->access = GS232B_REQUEST_WRITE;
     } else if (request->kind == GS232B_LINE_EXTENSION &&
@@ -134,8 +138,7 @@ static gs232b_error_t admit_line(gs232b_control_t *control,
         if (control->epoch_exhausted) {
             return GS232B_ERROR_RESOURCE_EXHAUSTED;
         }
-        if (gs232b_control_find(control, request->context.session)->transport ==
-            GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
+        if (slot->management_only || slot->transport == GS232B_TRANSPORT_SOFTAP_MANAGEMENT_WS) {
             return GS232B_ERROR_NOT_AUTHORIZED;
         }
         if (gs232b_session_key_valid(control->owner) &&

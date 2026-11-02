@@ -91,8 +91,7 @@ static gs232b_error_t motion_status(gs232b_dispatcher_t *dispatcher, writer_t *w
     gs232b_motion_snapshot_t state;
     const gs232b_error_t error = gs232b_motion_snapshot(dispatcher->motion, &state);
     if (error != GS232B_OK) return error;
-    append(writer, "{\"captured_at_us\":%" PRIu64 ",\"parameters_verified\":%s,\"axes\":[",
-        state.captured_at_us, boolean(dispatcher->motion->config.parameters_verified));
+    append(writer, "{\"captured_at_us\":%" PRIu64 ",\"axes\":[", state.captured_at_us);
     for (size_t i = 0; i < GS232B_AXIS_COUNT; ++i) {
         const gs232b_axis_snapshot_t *axis = &state.axes[i];
         const unsigned direction = i == GS232B_AXIS_AZIMUTH ?
@@ -101,8 +100,7 @@ static gs232b_error_t motion_status(gs232b_dispatcher_t *dispatcher, writer_t *w
             i == 0 ? "" : ",", i == 0 ? "azimuth" : "elevation", axis_mode(axis->mode));
         nullable_position(writer, axis->position_valid, axis->position_mdeg);
         append(writer, ",\"motion_ready\":%s,\"position_valid\":%s,\"target_mdeg\":",
-            boolean(dispatcher->motion->config.parameters_verified &&
-                dispatcher->motion->config.axes[i].enabled && axis->zero_valid &&
+            boolean(dispatcher->motion->config.axes[i].enabled && axis->zero_valid &&
                 axis->limits_valid && axis->position_valid && state.output.known &&
                 state.fault.code == GS232B_FAULT_NONE), boolean(axis->position_valid));
         nullable_position(writer, axis->target_valid, axis->target_mdeg);

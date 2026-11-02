@@ -88,7 +88,6 @@ static gs232b_error_t read_sample(void *ctx, gs232b_axis_id_t axis, gs232b_sampl
 void gs232b_motion_sim_config(gs232b_motion_config_t *config)
 {
     gs232b_motion_config_init(config);
-    config->parameters_verified = true;
     for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
         config->axes[i].enabled = true;
         config->axes[i].zero_valid = true;

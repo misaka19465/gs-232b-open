@@ -58,7 +58,7 @@ LAN 查询及 GS 运动面向可信局域网；网络管理 token 和 AP 密码�
 
 OWNER TAKE 不抢占他人，RELEASE 要求全停且无待运行序列或交互；忙时可先发 S。FAULT CLEAR 在存在其他控制者时返回 NOT_OWNER，运动、待运行序列或交互期间返回 BUSY；故障条件仍在则保持锁定。
 
-MOTION STATUS 的角度单位为毫度、电压为微伏，含有效性及 `parameters_verified`、`motion_ready`；无效角度、目标或未知方向为 null。方向 0 为停止、1 为方位 CW / 仰角 UP、2 为方位 CCW / 仰角 DOWN。零点不足、反馈无效或实测门禁未打开时不能运动。
+MOTION STATUS 的角度单位为毫度、电压为微伏，含有效性及 `motion_ready`；无效角度、目标或未知方向为 null。方向 0 为停止、1 为方位 CW / 仰角 UP、2 为方位 CCW / 仰角 DOWN。轴禁用、零点不足、反馈或限位无效、输出未知或存在锁定故障时，`motion_ready` 为 false。
 
 应用看门狗默认关闭。仅当前控制者成功的完整命令或 SESSION PING 续期；旁路查询、失败或不完整输入、周期校准显示与 WS Ping/Pong 均不续期。到期关闭来源、清任务并尝试全停；迟到 PING 不恢复控制者。低速长序列上传时应选择足够长的期限，或先停机关闭看门狗。
 

@@ -27,7 +27,6 @@ static bool init_motion(fixture_t *fixture)
 {
     gs232b_motion_config_t config;
     gs232b_motion_config_init(&config);
-    config.parameters_verified = true;
     for (int axis = 0; axis < GS232B_AXIS_COUNT; ++axis) {
         config.axes[axis].enabled = true;
         config.axes[axis].zero_valid = true;

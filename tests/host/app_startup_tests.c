@@ -6,7 +6,7 @@ static bool startup_trace_and_network_failure(void)
     CHECK(fixture_init(&f, false));
     f.network_error = GS232B_ERROR_IO;
     f.boot_error = GS232B_ERROR_WOULD_BLOCK;
-    CHECK(start(&f, false));
+    CHECK(start(&f));
     CHECK(f.spi.latched == 0x00 && f.spi.pwm == 0);
     bool latch = false, pwm = false;
     for (size_t i = 0; i < f.spi.count; ++i) {
@@ -47,17 +47,17 @@ static bool startup_trace_and_network_failure(void)
 
 static bool readiness_gates_and_calibration(void)
 {
-    for (unsigned missing = 0; missing < 3; ++missing) {
+    for (unsigned missing = 0; missing < 2; ++missing) {
         app_fixture_t f;
         CHECK(fixture_init(&f, missing != 0));
         if (missing == 1) f.sample_error = f.adc_error = GS232B_ERROR_NOT_READY;
-        CHECK(boot(&f, missing != 2));
+        CHECK(boot(&f));
         gs232b_motion_snapshot_t state;
         CHECK(gs232b_motion_snapshot(&f.app.motion, &state) == GS232B_OK);
         for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
             CHECK(state.axes[i].zero_valid == (missing != 0));
             CHECK(state.axes[i].sample.valid == (missing != 1));
-            CHECK(state.axes[i].position_valid == (missing == 2));
+            CHECK(!state.axes[i].position_valid);
             CHECK(state.axes[i].mode == (missing == 1 ? GS232B_AXIS_IDLE : GS232B_AXIS_DISABLED));
             CHECK(gs232b_motion_manual(&f.app.motion, (gs232b_axis_id_t)i,
                 GS232B_MOTION_POSITIVE) == GS232B_ERROR_NOT_READY);
@@ -71,13 +71,24 @@ static bool readiness_gates_and_calibration(void)
         CHECK(gs232b_app_step(&f.app) == GS232B_ERROR_NOT_READY);
         CHECK(expect(&f, "?>\r\n"));
         CHECK(f.spi.latched == 0x10 && f.spi.pwm == 0);
-        if (missing == 2) {
+        if (missing == 0) {
             CHECK(command(&f, "O\r"));
             CHECK(gs232b_app_step(&f.app) == GS232B_OK);
             CHECK(command(&f, "Y\r"));
             CHECK(gs232b_app_step(&f.app) == GS232B_OK);
             CHECK(f.app.motion.config.axes[0].zero_uv == 500000);
-            CHECK(!f.app.motion.config.parameters_verified && f.spi.pwm == 0);
+            CHECK(f.app.motion.config.axes[0].zero_valid && f.spi.pwm == 0);
+            CHECK(command(&f, "!MOTION STATUS\r"));
+            CHECK(gs232b_app_step(&f.app) == GS232B_OK);
+            CHECK(expect(&f, "\"motion_ready\":true"));
+            CHECK(command(&f, "R\r"));
+            CHECK(gs232b_app_step(&f.app) == GS232B_OK);
+            advance(&f, 250000);
+            CHECK(gs232b_app_step(&f.app) == GS232B_OK);
+            CHECK(f.spi.latched == 0x14 && f.spi.pwm > 0);
+            CHECK(command(&f, "S\r"));
+            CHECK(gs232b_app_step(&f.app) == GS232B_OK);
+            CHECK(f.spi.latched == 0x10 && f.spi.pwm == 0);
         }
         gs232b_fake_spi_bus_destroy(&f.spi);
     }
@@ -90,7 +101,7 @@ static bool output_and_storage_failures(void)
         app_fixture_t f;
         CHECK(fixture_init(&f, true));
         if (release == 0) gs232b_fake_spi_bus_fault(&f.spi, SPI_SHIFT_BYTE, 0, GS232B_ERROR_IO);
-        const bool started = start(&f, true);
+        const bool started = start(&f);
         if (release != 0) {
             CHECK(started);
             gs232b_fake_spi_bus_fault(&f.spi, SPI_SHIFT_BYTE, 0, GS232B_ERROR_IO);
@@ -107,7 +118,7 @@ static bool output_and_storage_failures(void)
     CHECK(fixture_init(&f, true));
     gs232b_fake_fail_next(&f.store.failures[GS232B_STORE_DISPLAY][GS232B_FAKE_STORE_LOAD],
         GS232B_ERROR_CORRUPT, 1);
-    CHECK(start(&f, true));
+    CHECK(start(&f));
     advance(&f, GS232B_W5500_RESET_DEFAULT_US);
     CHECK(gs232b_app_step(&f.app) == GS232B_OK);
     advance(&f, GS232B_W5500_RECOVERY_DEFAULT_US);
@@ -118,10 +129,14 @@ static bool output_and_storage_failures(void)
     return true;
 }
 
-static bool verified_boot_allows_fresh_motion(void)
+static bool boot_allows_fresh_motion(void)
 {
     app_fixture_t f;
-    CHECK(fixture_init(&f, true) && boot(&f, true));
+    CHECK(fixture_init(&f, true) && boot(&f));
+    CHECK(f.spi.latched == 0x10 && f.spi.pwm == 0);
+    CHECK(command(&f, "!MOTION STATUS\r"));
+    CHECK(gs232b_app_step(&f.app) == GS232B_OK);
+    CHECK(expect(&f, "\"motion_ready\":true"));
     CHECK(command(&f, "R\r"));
     CHECK(gs232b_app_step(&f.app) == GS232B_OK);
     advance(&f, 250000);
@@ -134,18 +149,23 @@ static bool verified_boot_allows_fresh_motion(void)
     return true;
 }
 
-static bool unavailable_store_keeps_uart_and_motion_gate(void)
+static bool unavailable_store_keeps_uart_without_motion(void)
 {
     app_fixture_t f;
-    CHECK(fixture_init(&f, false));
+    CHECK(fixture_init(&f, true));
     f.store_error = GS232B_ERROR_IO;
-    CHECK(boot(&f, true));
+    CHECK(boot(&f));
     CHECK(f.app.status.store_error == GS232B_ERROR_IO && f.app.status.uart_ready);
-    CHECK(!f.app.motion.config.parameters_verified);
-    CHECK(f.app.status.zero_error[0] == GS232B_ERROR_NOT_READY);
+    for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
+        CHECK(!f.app.motion.config.axes[i].zero_valid);
+        CHECK(f.app.status.zero_error[i] == GS232B_ERROR_IO);
+    }
     CHECK(command(&f, "!MOTION STATUS\r"));
     CHECK(gs232b_app_step(&f.app) == GS232B_OK);
-    CHECK(expect(&f, "\"parameters_verified\":false"));
+    CHECK(expect(&f, "\"motion_ready\":false"));
+    CHECK(command(&f, "R\r"));
+    CHECK(gs232b_app_step(&f.app) == GS232B_ERROR_NOT_READY);
+    CHECK(expect(&f, "?>\r\n"));
     CHECK(f.spi.latched == 0x10 && f.spi.pwm == 0);
     gs232b_fake_spi_bus_destroy(&f.spi);
     return true;
@@ -154,8 +174,8 @@ static bool unavailable_store_keeps_uart_and_motion_gate(void)
 int main(void)
 {
     if (!startup_trace_and_network_failure() || !readiness_gates_and_calibration() ||
-        !output_and_storage_failures() || !verified_boot_allows_fresh_motion() ||
-        !unavailable_store_keeps_uart_and_motion_gate()) return 1;
-    puts("app startup order, reset deadlines, UART isolation and motion gates passed");
+        !output_and_storage_failures() || !boot_allows_fresh_motion() ||
+        !unavailable_store_keeps_uart_without_motion()) return 1;
+    puts("app startup order, reset deadlines, UART isolation and motion readiness passed");
     return 0;
 }

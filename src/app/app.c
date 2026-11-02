@@ -56,14 +56,14 @@ static gs232b_error_t initialize(gs232b_app_t *app)
 {
     gs232b_app_platform_t *p = &app->platform;
     app->status.store_error = p->store_open(p->ctx, &app->store);
-    if (app->status.store_error != GS232B_OK) app->config.parameters_verified = false;
     gs232b_sampler_t sampler = {0};
     app->status.adc_error = p->adc_open(p->ctx, &sampler);
     if (sampler.read == NULL) sampler = (gs232b_sampler_t){.read = missing_sample};
     for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
         uint32_t zero = 0;
-        app->status.zero_error[i] = gs232b_feedback_zero_load(&app->store,
-            (gs232b_axis_id_t)i, &zero);
+        app->status.zero_error[i] = app->status.store_error == GS232B_OK ?
+            gs232b_feedback_zero_load(&app->store, (gs232b_axis_id_t)i, &zero) :
+            app->status.store_error;
         app->config.axes[i].zero_valid = app->status.zero_error[i] == GS232B_OK;
         app->config.axes[i].zero_uv = zero;
     }

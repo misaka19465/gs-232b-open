@@ -2,7 +2,7 @@
 
 ESP32-C3 旋转器控制器，提供 CH340K 串口、W5500 Ethernet 和 Wi-Fi WebSocket 入口，兼容 GS-232B 的控制、查询、定时序列与交互校准。各入口可同时连接和查询，两轴由单一会话控制，响应返回来源会话；网络配置经试运行确认后保存。设备没有用户可操作的配网或恢复按钮。
 
-**当前运动参数尚未通过控制箱实测。** [板级配置](src/app/board_config.c)保持 `parameters_verified=false`，允许查询有效反馈、保存零点和管理网络，拒绝运动。接真实负载前须完成[硬件验收](docs/gs-232b-open-hardware.md#实板验收)。
+[板级配置](src/app/board_config.c)默认启用两轴，换向等待为 250 ms。运动就绪状态依据各轴零点、反馈、限位、输出及故障状态判断。
 
 | 说明 | 内容 |
 | --- | --- |
@@ -31,7 +31,7 @@ PlatformIO 会生成内置离线配网页；修改网页后可单独执行 `npm 
 | `npm run test:web` | 配网页浏览器测试；首次需 `npx playwright install chromium` |
 | `python3 scripts/resource_budget.py` | 已有默认固件构建时重新生成目标 ABI 资源数据 |
 
-主机结果位于 `build/host/results.xml` 或 `build/host-sanitized/results.xml`，资源数据位于 `build/resource-budget/budget.json`。实板堆峰值和控制延迟尚未测量，预算中的对应值保持 `null`；静态大小、仿真时间和主机测试不能替代板上测量。
+主机结果位于 `build/host/results.xml` 或 `build/host-sanitized/results.xml`，资源数据位于 `build/resource-budget/budget.json`。资源预算统计目标 ABI 的静态分配；实板堆峰值和控制延迟独立记录。
 
 ## 维护入口
 

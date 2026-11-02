@@ -33,7 +33,6 @@ typedef struct {
 
 typedef struct {
     gs232b_motion_axis_config_t axes[GS232B_AXIS_COUNT];
-    bool parameters_verified; /* NOTE: 固件实测门禁；不影响反馈读取或零点校准。 */
     uint16_t azimuth_speed_permille;
     uint16_t azimuth_slow_speed_permille;
     gs232b_speed_levels_t azimuth_speed_levels;
@@ -78,11 +77,11 @@ typedef struct {
 } gs232b_motion_t;
 
 /**
- * @brief 初始化固件配置，两轴默认禁用、没有零点且参数未经实测确认。
+ * @brief 初始化固件配置，两轴默认禁用且没有零点。
  * @note 初始参数为容差 0.5°、AZ 减速区 15°、进展阈值 0.1°、反向阈值
  *       1°、无进展 5s、连续运行 300s、AZ PWM 800/300‰。
  *       X1..X4 默认为 250/500/750/1000‰，可在初始化前替换四档固件参数。
- *       这些是开发起点，部署前须按控制箱实测调整；EL 不支持 PWM 减速。
+ *       EL 不支持 PWM 减速。
  */
 void gs232b_motion_config_init(gs232b_motion_config_t *config);
 

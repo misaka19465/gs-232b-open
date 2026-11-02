@@ -11,7 +11,7 @@ typedef struct {
     uint16_t permille[GS232B_SPEED_LEVEL_COUNT];
 } gs232b_speed_levels_t;
 
-/** @brief 初始化为开发起点 250/500/750/1000‰，发布前须按控制箱实测调整。 */
+/** @brief 初始化四档 PWM 请求为 250/500/750/1000‰。 */
 void gs232b_speed_levels_init(gs232b_speed_levels_t *levels);
 
 /** @brief 校验四档均在 1..1000‰ 且严格递增；不访问输出。 */

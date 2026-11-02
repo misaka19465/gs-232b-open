@@ -58,7 +58,7 @@ struct gs232b_app {
     uint8_t requests[GS232B_LINE_STORAGE_BYTES];
 };
 
-/** @brief 取得板级开发参数；实测确认默认关闭，零点始终从独立存储域恢复。 */
+/** @brief 取得板级运动参数；零点始终从独立存储域恢复。 */
 void gs232b_app_board_config(gs232b_motion_config_t *config, gs232b_time_us_t *reversal_us);
 /** @brief 启动唯一输出管理器，首先锁存 0x00/PWM=0，再非阻塞等待硬复位。 */
 gs232b_error_t gs232b_app_start(gs232b_app_t *app, gs232b_app_platform_t platform,

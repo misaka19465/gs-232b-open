@@ -135,12 +135,11 @@ static inline bool fixture_init(app_fixture_t *f, bool zero)
     return true;
 }
 
-static inline bool start(app_fixture_t *f, bool verified)
+static inline bool start(app_fixture_t *f)
 {
     gs232b_motion_config_t config;
     gs232b_time_us_t reversal;
     gs232b_app_board_config(&config, &reversal);
-    config.parameters_verified = verified;
     const gs232b_app_platform_t platform = {.ctx = f,
         .clock = {&f->spi, gs232b_fake_spi_bus_now}, .io = gs232b_fake_sessions_port(&f->sessions),
         .outputs_open = outputs_open, .store_open = store_open, .adc_open = adc_open,
@@ -150,9 +149,9 @@ static inline bool start(app_fixture_t *f, bool verified)
     return gs232b_app_start(&f->app, platform, &config, reversal) == GS232B_OK;
 }
 
-static inline bool boot(app_fixture_t *f, bool verified)
+static inline bool boot(app_fixture_t *f)
 {
-    CHECK(start(f, verified));
+    CHECK(start(f));
     advance(f, GS232B_W5500_RESET_DEFAULT_US);
     CHECK(gs232b_app_step(&f->app) == GS232B_OK);
     advance(f, GS232B_W5500_RECOVERY_DEFAULT_US);

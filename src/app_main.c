@@ -18,6 +18,8 @@
  */
 
 #include "app/esp_app_internal.h"
+#include "esp_log.h"
+#include "esp_heap_caps.h"
 
 static gs232b_esp_app_t runtime;
 
@@ -25,8 +27,17 @@ static void control(void *ctx)
 {
     gs232b_esp_app_t *app = ctx;
     TickType_t deadline = xTaskGetTickCount();
+    int64_t diagnostic_at = 0;
     while (app->app.status.phase != GS232B_APP_FAILED) {
         (void)gs232b_app_step(&app->app);
+        if (esp_timer_get_time() - diagnostic_at >= 5000000) {
+            diagnostic_at = esp_timer_get_time();
+            ESP_LOGI("gs_diag", "phase=%u eth=%u wifi=%u sdk=%ld heap=%u largest=%u",
+                (unsigned)app->app.status.phase, (unsigned)app->eth.state.last_error,
+                (unsigned)app->wifi.state.last_error, (long)app->wifi.state.sdk_error,
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        }
         if (app->app.status.phase == GS232B_APP_UART_BOOT) {
             /* NOTE: 匹配窗口内尚未开放运动，1 tick 轮询避免积压单槽 RMT 完成事件。 */
             vTaskDelay(1);

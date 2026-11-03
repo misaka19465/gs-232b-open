@@ -75,7 +75,7 @@ typedef struct {
     gs232b_session_key_t session;
     gs232b_command_context_t rx_context;
     SemaphoreHandle_t ready;
-    gs232b_ws_packet_t rx[GS232B_WS_RX_PACKETS];
+    uint8_t rx_slots[GS232B_WS_RX_PACKETS];
     size_t rx_head, rx_count;
     uint8_t tx[GS232B_WS_TX_BYTES];
     size_t tx_head, tx_count;
@@ -100,6 +100,10 @@ typedef struct gs232b_esp_ws {
     SemaphoreHandle_t lock;
     gs232b_dispatcher_t *dispatcher;
     gs232b_ws_client_t clients[GS232B_WS_CLIENTS];
+    /* NOTE: 四个连接共享 16KiB 输入容量；每槽保留来源和 epoch，
+     * 单帧仍支持 16KiB，池满只关闭继续入队的来源，不借用其他会话的槽。 */
+    gs232b_ws_packet_t rx[GS232B_WS_RX_PACKETS];
+    bool rx_used[GS232B_WS_RX_PACKETS];
     gs232b_ws_interface_t interfaces[3];
     gs232b_ws_uri_context_t uri_contexts[2];
     size_t cursor;

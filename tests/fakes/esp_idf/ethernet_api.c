@@ -449,7 +449,8 @@ esp_err_t esp_netif_set_ip_info(esp_netif_t *netif, const esp_netif_ip_info_t *i
 {
     esp_err_t error = call(ETH_FAKE_SET_IP);
     if (error != ESP_OK) { return error; }
-    assert(netif->dhcp == ESP_NETIF_DHCP_STOPPED || !(netif->flags & ESP_NETIF_DHCP_CLIENT));
+    assert(netif->dhcp == ESP_NETIF_DHCP_STOPPED ||
+        !(netif->flags & (ESP_NETIF_DHCP_CLIENT | ESP_NETIF_DHCP_SERVER)));
     netif->ip = *ip;
     return ESP_OK;
 }
@@ -506,6 +507,21 @@ esp_err_t esp_netif_dhcpc_start(esp_netif_t *netif)
 esp_err_t esp_netif_dhcpc_get_status(esp_netif_t *netif, esp_netif_dhcp_status_t *dhcp)
 {
     *dhcp = netif->dhcp;
+    return ESP_OK;
+}
+
+esp_err_t esp_netif_dhcps_stop(esp_netif_t *netif)
+{
+    assert(netif->flags & ESP_NETIF_DHCP_SERVER);
+    return esp_netif_dhcpc_stop(netif);
+}
+
+esp_err_t esp_netif_dhcps_start(esp_netif_t *netif)
+{
+    assert(netif->flags & ESP_NETIF_DHCP_SERVER);
+    const esp_err_t error = call(ETH_FAKE_DHCP_START);
+    if (error != ESP_OK) return error;
+    netif->dhcp = netif->up ? ESP_NETIF_DHCP_STARTED : ESP_NETIF_DHCP_INIT;
     return ESP_OK;
 }
 

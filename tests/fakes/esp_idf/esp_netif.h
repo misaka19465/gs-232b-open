@@ -44,12 +44,13 @@ ESP_EVENT_DECLARE_BASE(IP_EVENT);
 #define ESP_NETIF_INHERENT_DEFAULT_WIFI_STA() { .flags = ESP_NETIF_DHCP_CLIENT, \
     .if_key = "WIFI_STA_DEF", .route_prio = 100 }
 #define ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA ((void *)2)
-#define ESP_NETIF_INHERENT_DEFAULT_WIFI_AP() { .flags = 0, .if_key = "WIFI_AP_DEF", .route_prio = 10 }
+#define ESP_NETIF_INHERENT_DEFAULT_WIFI_AP() { .flags = ESP_NETIF_DHCP_SERVER, .if_key = "WIFI_AP_DEF", .route_prio = 10 }
 #define ESP_NETIF_NETSTACK_DEFAULT_WIFI_AP ((void *)3)
 #define IP_EVENT_ETH_GOT_IP 100
 #define IP_EVENT_ETH_LOST_IP 101
 #define ESP_IPADDR_TYPE_V4 0
 #define ESP_NETIF_DHCP_CLIENT 1U
+#define ESP_NETIF_DHCP_SERVER 2U
 #define ESP_NETIF_INHERENT_DEFAULT_ETH() { .flags = ESP_NETIF_DHCP_CLIENT, \
     .if_key = "ETH_DEF", .route_prio = 50 }
 #define ESP_NETIF_NETSTACK_DEFAULT_ETH ((void *)1)
@@ -79,6 +80,8 @@ esp_err_t esp_netif_get_dns_info(esp_netif_t *, esp_netif_dns_type_t, esp_netif_
 esp_err_t esp_netif_dhcpc_stop(esp_netif_t *);
 esp_err_t esp_netif_dhcpc_start(esp_netif_t *);
 esp_err_t esp_netif_dhcpc_get_status(esp_netif_t *, esp_netif_dhcp_status_t *);
+esp_err_t esp_netif_dhcps_stop(esp_netif_t *);
+esp_err_t esp_netif_dhcps_start(esp_netif_t *);
 void esp_netif_action_stop(void *, esp_event_base_t, int32_t, void *);
 
 #endif

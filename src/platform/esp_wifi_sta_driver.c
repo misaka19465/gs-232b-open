@@ -164,7 +164,15 @@ gs232b_error_t gs232b_sta_start(gs232b_esp_wifi_sta_t *adapter)
             .netmask.addr = esp_netif_htonl(adapter->ap_config.netmask),
             .gw.addr = esp_netif_htonl(adapter->ap_config.gateway)
         };
+        /* NOTE: 默认 AP netif 带 DHCP server；IDF 6.1 仅允许在显式 STOPPED
+         * 状态设置静态 IP，配置后恢复 INIT，让 AP_START 启动服务器。 */
+        const esp_err_t stopped = esp_netif_dhcps_stop(adapter->ap_netif);
+        if (stopped != ESP_OK && stopped != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+            return sdk_result(adapter, stopped);
+        }
         result = sdk_result(adapter, esp_netif_set_ip_info(adapter->ap_netif, &ip));
+        if (result != GS232B_OK) { return result; }
+        result = sdk_result(adapter, esp_netif_dhcps_start(adapter->ap_netif));
         if (result != GS232B_OK) { return result; }
     }
     if (adapter->netif == NULL && adapter->ap_netif == NULL) return GS232B_OK;

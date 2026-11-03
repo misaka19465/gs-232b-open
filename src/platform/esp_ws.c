@@ -217,11 +217,16 @@ static gs232b_error_t lifecycle(gs232b_esp_ws_t *adapter, gs232b_ws_client_t *cl
         if (atomic_exchange(&client->pending, false)) { (void)xSemaphoreGive(client->ready); }
         if (atomic_load(&client->http_closed) && !gs232b_session_key_valid(client->session)) {
             /* NOTE: HTTPD free_ctx 已返回前的最后一步是发布 http_closed；之后不再访问槽。 */
+            if (xSemaphoreTake(adapter->lock, 0) != pdPASS) return GS232B_ERROR_WOULD_BLOCK;
+            for (size_t i = 0; i < client->rx_count; ++i) {
+                adapter->rx_used[client->rx_slots[(client->rx_head + i) % GS232B_WS_RX_PACKETS]] = false;
+            }
             client->rx_head = client->rx_count = client->tx_head = client->tx_count = 0;
             atomic_store(&client->http_closed, false);
             atomic_store(&client->session_ready, false);
             atomic_store(&client->close_requested, false);
             atomic_store(&client->occupied, false);
+            (void)xSemaphoreGive(adapter->lock);
         }
         return result;
     }
@@ -271,7 +276,9 @@ gs232b_error_t gs232b_esp_ws_service(gs232b_esp_ws_t *adapter)
         gs232b_ws_client_t *client = &adapter->clients[index];
         if (atomic_load(&client->session_ready) && !atomic_load(&client->close_requested) &&
             !atomic_load(&client->http_closed) && client->rx_count != 0) {
-            packet = client->rx[client->rx_head];
+            const size_t slot = client->rx_slots[client->rx_head];
+            packet = adapter->rx[slot];
+            adapter->rx_used[slot] = false;
             client->rx_head = (client->rx_head + 1U) % GS232B_WS_RX_PACKETS;
             --client->rx_count;
             adapter->cursor = (index + 1U) % GS232B_WS_CLIENTS;

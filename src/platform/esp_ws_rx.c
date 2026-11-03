@@ -253,9 +253,13 @@ esp_err_t gs232b_ws_receive(httpd_req_t *request)
         }
         packet.size = before - frame.left_len;
         (void)xSemaphoreTake(adapter->lock, portMAX_DELAY);
-        const bool fits = client->rx_count < GS232B_WS_RX_PACKETS;
+        size_t slot = 0;
+        while (slot < GS232B_WS_RX_PACKETS && adapter->rx_used[slot]) ++slot;
+        const bool fits = slot < GS232B_WS_RX_PACKETS;
         if (fits) {
-            client->rx[(client->rx_head + client->rx_count) % GS232B_WS_RX_PACKETS] = packet;
+            adapter->rx[slot] = packet;
+            adapter->rx_used[slot] = true;
+            client->rx_slots[(client->rx_head + client->rx_count) % GS232B_WS_RX_PACKETS] = (uint8_t)slot;
             ++client->rx_count;
         }
         (void)xSemaphoreGive(adapter->lock);

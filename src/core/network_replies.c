@@ -90,7 +90,10 @@ static void config(writer_t *writer, const gs232b_net_config_t *value)
     append(writer, "},\"wifi\":{\"enabled\":%s,\"ssid\":", boolean(value->wifi.enabled));
     quoted(writer, value->wifi.ssid);
     append(writer, ",\"security\":\"%s\",\"password_set\":%s,\"mode\":\"%s\",\"address\":",
-        value->wifi.password[0] == '\0' ? "open" : "wpa2-personal",
+        value->wifi.security == GS232B_WIFI_STA_SECURITY_WPA_PERSONAL ? "wpa-personal" :
+        value->wifi.security == GS232B_WIFI_STA_SECURITY_WPA2_PERSONAL ? "wpa2-personal" :
+        value->wifi.security == GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL ? "wpa3-personal" :
+        value->wifi.password[0] == '\0' ? "open" : "auto",
         boolean(value->wifi.password[0] != '\0'),
         value->wifi.mode == GS232B_WIFI_STA_STATIC ? "static" : "dhcp");
     ipv4(writer, value->wifi.ipv4.address);

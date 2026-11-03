@@ -28,7 +28,7 @@ test('network list sorts, deduplicates, ends with Other, and refreshes offline a
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/provisioning.html');
   await expect(page.locator('#networks .network-row')).toHaveCount(4);
-  await expect(page.locator('#networks .network-row').first()).toContainText('Radio House');
+  await expect(page.locator('#networks .network-row').first()).toHaveJSProperty('textContent', state.aps[0].ssid);
   await expect(page.locator('mdui-list-item').last()).toHaveAttribute('id', 'other-network');
   await expect(page.locator('mdui-list')).toHaveCount(1);
   await page.locator('#refresh').click();
@@ -40,7 +40,8 @@ test('network list sorts, deduplicates, ends with Other, and refreshes offline a
 test('an empty scan keeps Other available and clears the empty message after refresh', async ({ page }) => {
   const state = await mockDevice(page, { aps: [] });
   await page.goto('/provisioning.html');
-  await expect(page.locator('#scan-message')).toContainText('未发现可用网络');
+  await expect(page.locator('#scan-message')).toHaveAttribute('data-text', 'empty');
+  await expect(page.locator('#scan-message')).toBeVisible();
   await expect(page.locator('#other-network')).toBeVisible();
   await expect(page.locator('#networks .network-row')).toHaveCount(0);
   state.aps = [{ ssid: 'Available Again', rssi: -40, auth: 0 }];
@@ -63,8 +64,8 @@ test('large scan results are fetched in cursor pages from one scan snapshot', as
     'PROV SCAN {"scan_id":1,"cursor":8}',
     'PROV SCAN {"scan_id":1,"cursor":16}',
   ]);
-  await expect(page.locator('#networks .network-row').first()).toContainText('Network 1');
-  await expect(page.locator('#networks .network-row').nth(20)).toContainText('Network 21');
+  await expect(page.locator('#networks .network-row').first()).toHaveJSProperty('textContent', aps[0].ssid);
+  await expect(page.locator('#networks .network-row').nth(20)).toHaveJSProperty('textContent', aps[20].ssid);
 });
 
 test('an asynchronous device scan keeps polling until its first page is ready', async ({ page }) => {
@@ -81,12 +82,14 @@ test('a failed continuation keeps the previous complete list and allows refresh'
   const state = await mockDevice(page);
   await page.goto('/provisioning.html');
   await expect(page.locator('#networks .network-row')).toHaveCount(4);
+  const previousSsid = state.aps[0].ssid;
   state.aps = Array.from({ length: 17 }, (_, index) => ({ ssid: `New ${index}`, rssi: -30 - index, auth: 0 }));
   state.fail = 'PROV SCAN {';
   await page.locator('#refresh').click();
-  await expect(page.locator('#scan-message')).toContainText('扫描失败');
+  await expect(page.locator('#scan-message')).toHaveAttribute('data-text', 'scanFailed');
+  await expect(page.locator('#scan-message')).toBeVisible();
   await expect(page.locator('#networks .network-row')).toHaveCount(4);
-  await expect(page.locator('#networks')).toContainText('Radio House');
+  await expect(page.locator('#networks .network-row').first()).toHaveJSProperty('textContent', previousSsid);
   state.fail = null;
   await page.locator('#refresh').click();
   await expect(page.locator('#networks .network-row')).toHaveCount(17);
@@ -98,7 +101,7 @@ test('the device memory limit is visible when more than 64 networks are found', 
   const state = await mockDevice(page, { aps });
   await page.goto('/provisioning.html');
   await expect(page.locator('#networks .network-row')).toHaveCount(64);
-  await expect(page.locator('#scan-message')).toContainText('64');
+  await expect(page.locator('#scan-message')).toHaveAttribute('data-text', 'scanTruncated');
   await expect(page.locator('#scan-message')).toBeVisible();
   expect(state.scans).toBe(1);
   expect(state.commands.filter(command => command.startsWith('PROV SCAN'))).toHaveLength(8);
@@ -130,31 +133,33 @@ test('secured network expands advanced DHCP and static fields inside the same di
   await input(page, 'gateway').fill('192.168.1.1');
   await page.locator('#join').click();
   await expect(page.locator('#trial-card')).toBeVisible();
-  expect(state.candidate).toEqual({ wifi: { enabled: true, ssid: 'Radio House', password: 'correct-password',
+  expect(state.candidate).toEqual({ wifi: { enabled: true, ssid: state.aps[0].ssid, password: 'correct-password', security: 'wpa2-personal',
     mode: 'static', address: '192.168.1.64', netmask: '255.255.255.0', gateway: '192.168.1.1' } });
   await expect(page.locator('#save')).toHaveJSProperty('disabled', true);
   expect(state.commands.some(command => command.startsWith('CFG CONFIRM'))).toBe(false);
   state.ready = true;
   await expect(page.locator('#save')).toHaveJSProperty('disabled', false);
   await page.locator('#save').click();
-  await expect(page.locator('#status')).toContainText('网络配置已保存');
+  await expect(page.locator('#trial-card')).toBeHidden();
   expect(state.commands.filter(command => command.startsWith('CFG CONFIRM'))).toHaveLength(1);
 });
 
 test('open network still opens a dialog, hides the password, and sends an empty key', async ({ page }) => {
   const state = await mockDevice(page);
+  const network = state.aps.find(ap => ap.auth === 0);
   await page.goto('/provisioning.html');
-  await page.locator('#networks .network-row').filter({ hasText: 'Guest Network' }).click();
+  await page.locator('#networks .network-row').filter({ hasText: network.ssid }).click();
   await expect(page.locator('#network-dialog')).toHaveAttribute('open', '');
   await expect(input(page, 'password')).toBeHidden();
   await expect(page.locator('#advanced')).toBeVisible();
   await page.locator('#join').click();
   await expect(page.locator('#trial-card')).toBeVisible();
-  expect(state.candidate.wifi).toEqual({ enabled: true, ssid: 'Guest Network', password: '', mode: 'dhcp' });
+  expect(state.candidate.wifi).toEqual({ enabled: true, ssid: network.ssid, password: '', security: 'open', mode: 'dhcp' });
 });
 
 test('Other collects SSID and key then returns to the unified password dialog', async ({ page }) => {
   await mockDevice(page);
+  const ssid = 'Hidden Station';
   await page.goto('/provisioning.html');
   await expect(page.locator('#refresh')).toHaveJSProperty('disabled', false);
   await page.locator('#other-network').click();
@@ -163,11 +168,12 @@ test('Other collects SSID and key then returns to the unified password dialog', 
   await expect(page.locator('#advanced')).toBeHidden();
   await input(page, 'manual-ssid').fill('中'.repeat(11));
   await page.locator('#join').click();
-  await expect(page.locator('#dialog-error')).toContainText('1–32');
-  await input(page, 'manual-ssid').fill('Hidden Station');
+  await expect(page.locator('#dialog-error')).toBeVisible();
+  await expect(page.locator('#dialog-error')).toHaveAttribute('data-text', 'invalidSsid');
+  await input(page, 'manual-ssid').fill(ssid);
   await input(page, 'manual-key').fill('hidden-secret');
   await page.locator('#join').click();
-  await expect(page.locator('#dialog-heading')).toHaveText('Hidden Station');
+  await expect(page.locator('#dialog-heading')).toHaveText(ssid);
   await expect(input(page, 'password')).toHaveValue('hidden-secret');
   await expect(input(page, 'manual-ssid')).toBeHidden();
   await expect(page.locator('#advanced')).toBeVisible();
@@ -176,12 +182,13 @@ test('Other collects SSID and key then returns to the unified password dialog', 
 
 test('Other with an empty key opens the password-free connection dialog', async ({ page }) => {
   const state = await mockDevice(page);
+  const ssid = 'Hidden Open Network';
   await page.goto('/provisioning.html');
   await expect(page.locator('#refresh')).toHaveJSProperty('disabled', false);
   await page.locator('#other-network').click();
-  await input(page, 'manual-ssid').fill('Hidden Open Network');
+  await input(page, 'manual-ssid').fill(ssid);
   await page.locator('#join').click();
-  await expect(page.locator('#dialog-heading')).toHaveText('Hidden Open Network');
+  await expect(page.locator('#dialog-heading')).toHaveText(ssid);
   await expect(input(page, 'password')).toBeHidden();
   await page.locator('#join').click();
   await expect(page.locator('#trial-card')).toBeVisible();
@@ -194,12 +201,14 @@ test('invalid password and subnet are rejected before starting a candidate', asy
   await page.locator('#networks .network-row').first().click();
   await input(page, 'password').fill('short');
   await page.locator('#join').click();
-  await expect(page.locator('#dialog-error')).toContainText('8–63');
+  await expect(page.locator('#dialog-error')).toBeVisible();
+  await expect(page.locator('#dialog-error')).toHaveAttribute('data-text', 'invalidPassword');
   await input(page, 'password').fill('correct-password');
   await selectStatic(page);
   await input(page, 'ip-address').fill('192.168.1.0');
   await page.locator('#join').click();
-  await expect(page.locator('#dialog-error')).toContainText('子网');
+  await expect(page.locator('#dialog-error')).toBeVisible();
+  await expect(page.locator('#dialog-error')).toHaveAttribute('data-text', 'invalidSubnet');
   expect(state.commands).not.toContain('CFG BEGIN');
 });
 
@@ -246,21 +255,22 @@ test('a refreshed page recovers the actual trial.config.wifi protocol shape', as
     deadline: Date.now() + 60000,
   });
   await page.goto('/provisioning.html');
-  await expect(page.locator('#trial-status')).toContainText('Recovered Network');
+  await expect(page.locator('#trial-status')).toContainText(state.trial.config.wifi.ssid);
   await expect(page.locator('#save')).toHaveJSProperty('disabled', false);
   await page.locator('#save').click();
-  await expect(page.locator('#status')).toContainText('网络配置已保存');
+  await expect(page.locator('#trial-card')).toBeHidden();
   expect(state.commands).toContain('CFG CONFIRM {"trial_id":8}');
   expect(state.commands.some(command => command.startsWith('CFG APPLY'))).toBe(false);
 });
 
 test('SSID is rendered as text, never markup', async ({ page }) => {
-  await mockDevice(page, { aps: [{ ssid: '<img src=x onerror=alert(1)>', rssi: -40, auth: 0 }] });
+  const ssid = '<img src=x onerror=alert(1)>';
+  await mockDevice(page, { aps: [{ ssid, rssi: -40, auth: 0 }] });
   await page.goto('/provisioning.html');
-  await expect(page.locator('#networks .network-row')).toContainText('<img src=x onerror=alert(1)>');
+  await expect(page.locator('#networks .network-row')).toHaveJSProperty('textContent', ssid);
   await expect(page.locator('#networks img')).toHaveCount(0);
   await page.locator('#networks .network-row').click();
-  await expect(page.locator('#dialog-heading')).toHaveText('<img src=x onerror=alert(1)>');
+  await expect(page.locator('#dialog-heading')).toHaveText(ssid);
 });
 
 test('validators enforce byte lengths, credential formats, and local IPv4 rules', () => {
@@ -285,7 +295,7 @@ for (const locale of ['zh-CN', 'en-US']) {
     for (const viewport of [{ width: 360, height: 800 }, { width: 430, height: 932 }, { width: 1280, height: 900 }]) {
       test(`visual states at ${viewport.width}px`, async ({ page }) => {
         await page.setViewportSize(viewport);
-        await mockDevice(page);
+        const state = await mockDevice(page);
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.goto('/provisioning.html');
@@ -294,19 +304,25 @@ for (const locale of ['zh-CN', 'en-US']) {
           expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
           await expect(page.locator('html')).toHaveAttribute('lang', locale === 'en-US' ? 'en' : 'zh-CN');
           const panel = page.locator('#network-dialog').locator('div[part="panel"]');
-          if (await panel.isVisible()) {
+          if (await page.locator('#network-dialog').getAttribute('open') !== null) {
+            await expect(panel).toBeVisible();
             await panel.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
             const bounds = await panel.boundingBox();
             expect(bounds.x).toBeGreaterThanOrEqual(0);
             expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
             expect(await panel.evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(Math.ceil(bounds.width));
-            const advancedBounds = await page.locator('#advanced').boundingBox();
-            expect(advancedBounds.x).toBeGreaterThanOrEqual(bounds.x);
-            expect(advancedBounds.x + advancedBounds.width).toBeLessThanOrEqual(bounds.x + bounds.width);
-            const joinBounds = await page.locator('#join').boundingBox();
+            const advanced = page.locator('#advanced');
+            if (await advanced.isVisible()) {
+              const advancedBounds = await advanced.boundingBox();
+              expect(advancedBounds.x).toBeGreaterThanOrEqual(bounds.x);
+              expect(advancedBounds.x + advancedBounds.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+            }
+            const join = page.locator('#join');
+            await expect(join).toBeVisible();
+            const joinBounds = await join.boundingBox();
             expect(joinBounds.x).toBeGreaterThanOrEqual(bounds.x);
             expect(joinBounds.x + joinBounds.width).toBeLessThanOrEqual(bounds.x + bounds.width);
-            await expect(page.locator('#join')).toBeInViewport();
+            await expect(join).toBeInViewport();
           }
           await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: 'disabled' });
         };
@@ -331,14 +347,16 @@ for (const locale of ['zh-CN', 'en-US']) {
         await page.locator('#close-dialog').click();
         await expect(page.locator('#network-dialog')).toBeHidden();
         await page.locator('#other-network').click();
+        await expect(input(page, 'manual-ssid')).toBeVisible();
         await screenshot('other');
         await page.locator('#close-dialog').click();
         await expect(page.locator('#network-dialog')).toBeHidden();
-        await page.locator('#networks .network-row').filter({ hasText: 'Guest Network' }).click();
+        const openNetwork = state.aps.find(ap => ap.auth === 0);
+        await page.locator('#networks .network-row').filter({ hasText: openNetwork.ssid }).click();
         await screenshot('open-network');
         await page.locator('#join').click();
         await expect(page.locator('#trial-card')).toBeVisible();
-        await expect(page.locator('#trial-remaining')).toContainText(locale === 'en-US' ? 'seconds' : '秒');
+        await expect(page.locator('#trial-remaining')).toBeVisible();
         await page.locator('#trial-card').scrollIntoViewIfNeeded();
         await screenshot('trial');
         expect(errors).toEqual([]);

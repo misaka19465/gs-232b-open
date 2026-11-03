@@ -37,7 +37,7 @@
     (GS232B_PERSISTENCE_RECORD_HEADER_SIZE + GS232B_PERSISTENCE_MAX_PAYLOAD_SIZE + \
      GS232B_PERSISTENCE_RECORD_CHECKSUM_SIZE)
 #define GS232B_PERSISTENCE_SCHEMA_DISPLAY 1U
-#define GS232B_PERSISTENCE_SCHEMA_NETWORK 3U
+#define GS232B_PERSISTENCE_SCHEMA_NETWORK 4U
 #define GS232B_PERSISTENCE_SCHEMA_CONFIG_META 1U
 #define GS232B_PERSISTENCE_SCHEMA_ADMIN 1U
 #define GS232B_NETWORK_SSID_MAX 32U
@@ -50,7 +50,10 @@ typedef uint64_t gs232b_revision_t;
 
 typedef enum {
     GS232B_NETWORK_SECURITY_OPEN = 0,
-    GS232B_NETWORK_SECURITY_WPA2_PERSONAL = 1
+    GS232B_NETWORK_SECURITY_WPA2_PERSONAL = 1,
+    GS232B_NETWORK_SECURITY_WPA_PERSONAL = 2,
+    GS232B_NETWORK_SECURITY_WPA3_PERSONAL = 3,
+    GS232B_NETWORK_SECURITY_PERSONAL_AUTO = 4
 } gs232b_network_security_t;
 
 typedef struct {
@@ -65,6 +68,9 @@ typedef struct {
     gs232b_wifi_sta_mode_t wifi_mode;
     gs232b_wifi_sta_address_t wifi_ipv4;
 } gs232b_network_config_t;
+
+/** @brief 将已校验的非 NULL 网络记录转换为 STA 配置，保留旧记录的 WPA2 最低强度。 */
+gs232b_wifi_sta_config_t gs232b_persistence_network_wifi(const gs232b_network_config_t *config);
 
 typedef struct {
     gs232b_store_domain_t domain;

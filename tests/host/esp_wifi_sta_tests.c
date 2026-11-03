@@ -195,7 +195,7 @@ int main(void)
 {
     if (!validation() || !wrong_password_and_backoff() || !timeout_and_ip_events() ||
         !disable_and_reconfigure() || !wifi_test_faults() || !wifi_test_coexistence() ||
-        !wifi_test_ipv4() || !callbacks_and_overflow()) { return 1; }
+        !wifi_test_ipv4() || !wifi_test_security() || !callbacks_and_overflow()) { return 1; }
     puts("Wi-Fi STA credentials, bounded retry, lifecycle, fault and Ethernet coexistence tests passed");
     return 0;
 }

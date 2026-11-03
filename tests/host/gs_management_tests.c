@@ -25,7 +25,7 @@ static bool ownership_status_and_watchdog(void)
 {
     gs_fixture_t f; runtime_t runtime = {0};
     CHECK(setup(&f, &runtime));
-    CHECK(management_command(&f, 1, "!SYS INFO\r", GS232B_OK, "\"network\":3"));
+    CHECK(management_command(&f, 1, "!SYS INFO\r", GS232B_OK, "\"network\":4"));
     CHECK(management_command(&f, 1, "!OWNER GET\r", GS232B_OK, "\"owner\":null"));
     CHECK(management_command(&f, 0, "  !owner   take {}\r", GS232B_OK, "\"transport\":\"uart1\""));
     CHECK(management_command(&f, 1, "!OWNER TAKE\r", GS232B_ERROR_NOT_OWNER, NULL));

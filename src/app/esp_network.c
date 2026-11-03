@@ -79,11 +79,7 @@ gs232b_error_t gs232b_app_network_bind(void *ctx, gs232b_app_t *app)
     gs232b_error_t error = gs232b_persistence_network_load(&app->store, &saved, &revision);
     if (error == GS232B_OK) {
         runtime->desired.eth = saved.eth;
-        runtime->desired.wifi.enabled = saved.enabled;
-        runtime->desired.wifi.mode = saved.wifi_mode;
-        runtime->desired.wifi.ipv4 = saved.wifi_ipv4;
-        memcpy(runtime->desired.wifi.ssid, saved.ssid, sizeof(saved.ssid));
-        memcpy(runtime->desired.wifi.password, saved.password, sizeof(saved.password));
+        runtime->desired.wifi = gs232b_persistence_network_wifi(&saved);
     } else if (error != GS232B_ERROR_NOT_FOUND) runtime->bind_error = error;
     uint8_t mac[6];
     if (esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP) != ESP_OK) {

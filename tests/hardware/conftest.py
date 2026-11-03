@@ -17,6 +17,8 @@ def pytest_addoption(parser):
     group.addoption("--device-baud", type=int, default=9600, choices=(1200, 2400, 4800, 9600))
     group.addoption("--device-timeout", type=float, default=5.0)
     group.addoption("--device-network", action="store_true", help="Require ETH and STA DHCP and test both LAN interfaces")
+    group.addoption("--device-wifi-security", choices=("auto", "wpa-personal", "wpa2-personal", "wpa3-personal"),
+                    help="Verify the saved Personal authentication policy without changing credentials")
 
 
 @pytest.fixture(scope="session")

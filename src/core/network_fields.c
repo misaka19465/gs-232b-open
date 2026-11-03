@@ -120,6 +120,7 @@ static bool placeholder(const char *password)
 static gs232b_error_t patch_wifi(gs232b_json_value_t object, gs232b_wifi_sta_config_t *wifi)
 {
     gs232b_json_value_t value;
+    bool security_set = false, open_requested = false;
     /* NOTE: 地址规则共用校验，实际字段仍由 STA 与 ETH 独立持有。 */
     gs232b_ethernet_config_t ip = {
         .mode = wifi->mode == GS232B_WIFI_STA_STATIC ? GS232B_ETHERNET_STATIC : GS232B_ETHERNET_DHCP,
@@ -134,20 +135,30 @@ static gs232b_error_t patch_wifi(gs232b_json_value_t object, gs232b_wifi_sta_con
     }
     if (gs232b_json_get(object, "security", &value) == GS232B_OK) {
         char security[14];
-        if (string(value, security, sizeof(security)) != GS232B_OK ||
-            strcmp(security, "wpa2-personal") != 0) return GS232B_ERROR_INVALID_ARGUMENT;
+        if (string(value, security, sizeof(security)) != GS232B_OK) return GS232B_ERROR_INVALID_ARGUMENT;
+        security_set = true;
+        open_requested = strcmp(security, "open") == 0;
+        if (strcmp(security, "auto") == 0 || strcmp(security, "open") == 0)
+            wifi->security = GS232B_WIFI_STA_SECURITY_AUTO;
+        else if (strcmp(security, "wpa-personal") == 0) wifi->security = GS232B_WIFI_STA_SECURITY_WPA_PERSONAL;
+        else if (strcmp(security, "wpa2-personal") == 0) wifi->security = GS232B_WIFI_STA_SECURITY_WPA2_PERSONAL;
+        else if (strcmp(security, "wpa3-personal") == 0) wifi->security = GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL;
+        else return GS232B_ERROR_INVALID_ARGUMENT;
     }
     if (gs232b_json_get(object, "ssid", &value) == GS232B_OK &&
         string(value, wifi->ssid, sizeof(wifi->ssid)) != GS232B_OK) return GS232B_ERROR_INVALID_ARGUMENT;
     if (gs232b_json_get(object, "password", &value) == GS232B_OK) {
         if (string(value, wifi->password, sizeof(wifi->password)) != GS232B_OK ||
             placeholder(wifi->password)) return GS232B_ERROR_INVALID_ARGUMENT;
-        if (wifi->password[0] != '\0') {
-            gs232b_wifi_sta_config_t check = *wifi;
-            memcpy(check.ssid, "check", sizeof("check"));
-            check.mode = GS232B_WIFI_STA_DHCP;
-            if (!gs232b_wifi_sta_config_valid(&check)) return GS232B_ERROR_INVALID_ARGUMENT;
-        }
+        /* NOTE: 保留旧客户端用空密码切换开放网络的接口。 */
+        if (!security_set && wifi->password[0] == '\0') wifi->security = GS232B_WIFI_STA_SECURITY_AUTO;
+    }
+    if (open_requested && wifi->password[0] != '\0') return GS232B_ERROR_INVALID_ARGUMENT;
+    if (wifi->password[0] != '\0') {
+        gs232b_wifi_sta_config_t check = *wifi;
+        memcpy(check.ssid, "check", sizeof("check"));
+        check.mode = GS232B_WIFI_STA_DHCP;
+        if (!gs232b_wifi_sta_config_valid(&check)) return GS232B_ERROR_INVALID_ARGUMENT;
     }
     return GS232B_OK;
 }

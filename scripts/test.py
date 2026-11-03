@@ -55,6 +55,19 @@ def check_target_console(environment: str) -> None:
             raise RuntimeError(f"{config}: console must use USB Serial/JTAG without UART")
 
 
+def check_wifi_security(environment: str) -> None:
+    """Require WPA3 Personal and exclude authentication without an ordinary password."""
+    config = ROOT / ".pio" / "build" / environment / "config/sdkconfig.json"
+    settings = json.loads(config.read_text())
+    required = ("ESP_WIFI_ENABLE_WPA3_SAE", "ESP_WIFI_ENABLE_SAE_H2E", "ESP_WIFI_WPA3_COMPATIBLE_SUPPORT")
+    excluded = ("ESP_WIFI_ENTERPRISE_SUPPORT", "ESP_WIFI_ENABLE_WPA3_OWE_STA",
+                "ESP_WIFI_ENABLE_WPA3_OWE_SOFTAP", "ESP_WIFI_ENABLE_SAE_PK", "ESP_WIFI_SOFTAP_SAE_SUPPORT")
+    if not all(settings.get(key) is True for key in required) or any(settings.get(key) for key in excluded):
+        raise RuntimeError(f"{config}: require Personal SAE/H2E without enterprise, OWE or SAE-PK; regenerate stale sdkconfig")
+    if settings.get("ESP_WIFI_STATIC_RX_BUFFER_NUM") != 6 or settings.get("ESP_WIFI_RX_IRAM_OPT"):
+        raise RuntimeError(f"{config}: require the verified C3 Wi-Fi heap profile; regenerate stale sdkconfig")
+
+
 def check_capture_link() -> None:
     """Require the locked C3 SDK and real capture/UART/NVS symbols in the linked ELF."""
     build = ROOT / ".pio" / "build" / CAPTURE_ENVIRONMENT
@@ -225,6 +238,9 @@ def main() -> int:
             check_target_console(ETHERNET_ENVIRONMENT)
             check_target_console(WIFI_STA_ENVIRONMENT)
             check_target_console(WEBSOCKET_ENVIRONMENT)
+            for environment in (ENVIRONMENT, CAPTURE_ENVIRONMENT, ETHERNET_ENVIRONMENT,
+                                WIFI_STA_ENVIRONMENT, WEBSOCKET_ENVIRONMENT):
+                check_wifi_security(environment)
             check_application_link()
             check_capture_link()
             check_ethernet_link()

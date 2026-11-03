@@ -84,7 +84,7 @@ typedef struct {
     gs232b_config_trial_t trial;
 } gs232b_config_transaction_t;
 
-/** @brief 完整校验 ETH 静态网络及 WPA2 凭据；DHCP 忽略保留的静态字段。 */
+/** @brief 完整校验 ETH 静态网络及 Wi-Fi 个人认证凭据；DHCP 忽略保留的静态字段。 */
 bool gs232b_net_config_valid(const gs232b_net_config_t *config);
 /** @brief 按实际字段比较接口变更，不比较结构体填充字节。 */
 gs232b_net_changes_t gs232b_net_config_changes(const gs232b_net_config_t *active,

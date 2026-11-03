@@ -72,6 +72,7 @@ set_tests_properties(esp_ethernet PROPERTIES TIMEOUT 30)
 
 add_executable(esp_wifi_sta_tests
     esp_wifi_sta_tests.c wifi_sta_fault_tests.c wifi_sta_coexistence_tests.c wifi_sta_ipv4_tests.c
+    wifi_sta_security_tests.c
     ../fakes/esp_idf/wifi_api.c ../fakes/esp_idf/ethernet_api.c
     ../fakes/esp_idf/ethernet_rtos.c ../fakes/spi_bus.c
     ../../src/core/wifi_sta.c ../../src/platform/esp_wifi_sta.c
@@ -148,7 +149,7 @@ set_tests_properties(speed_levels PROPERTIES TIMEOUT 5)
 add_executable(uart_baud_store_tests uart_baud_store_tests.c
     ../../src/core/uart_baud.c ../../src/core/uart_baud_store.c
     ../../src/core/persistence.c ../../src/core/ports.c ../../src/core/types.c
-    ../../src/core/coordinates.c ../../src/core/ethernet.c ../fakes/fakes.c)
+    ../../src/core/coordinates.c ../../src/core/ethernet.c ../../src/core/wifi_sta.c ../fakes/fakes.c)
 target_include_directories(uart_baud_store_tests PRIVATE ../../include ../fakes)
 set_target_properties(uart_baud_store_tests PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
@@ -185,6 +186,7 @@ foreach(adc_test IN ITEMS esp_adc_tests esp_adc_motion_tests)
         ../../src/core/coordinates.c
         ../../src/core/feedback.c
         ../../src/core/ethernet.c
+        ../../src/core/wifi_sta.c
         ../../src/core/persistence.c
         ../../src/core/output_manager.c
         ../../src/core/motion.c
@@ -370,6 +372,7 @@ add_executable(feedback_tests
     ../../src/core/coordinates.c
     ../../src/core/feedback.c
     ../../src/core/ethernet.c
+    ../../src/core/wifi_sta.c
     ../../src/core/persistence.c
 )
 target_include_directories(feedback_tests PRIVATE
@@ -396,6 +399,7 @@ add_executable(persistence_tests
     ../../src/core/coordinates.c
     ../../src/core/feedback.c
     ../../src/core/ethernet.c
+    ../../src/core/wifi_sta.c
     ../../src/core/persistence.c
 )
 target_include_directories(persistence_tests PRIVATE
@@ -489,7 +493,7 @@ foreach(motion_test IN ITEMS motion_tests motion_fault_tests command_control_tes
         target_link_libraries(${motion_test} PRIVATE Threads::Threads)
     endif()
     if(motion_test STREQUAL "gs_network_tests")
-        target_sources(${motion_test} PRIVATE network_validation_tests.c network_lifecycle_tests.c
+        target_sources(${motion_test} PRIVATE network_validation_tests.c network_security_tests.c network_lifecycle_tests.c
             network_ipv4_tests.c network_scan_tests.c)
     endif()
     if(motion_test STREQUAL "gs_management_tests")

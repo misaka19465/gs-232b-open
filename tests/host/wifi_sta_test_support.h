@@ -112,4 +112,5 @@ static inline void wifi_ready(wifi_fixture_t *f)
 
 bool wifi_test_faults(void);
 bool wifi_test_coexistence(void);
+bool wifi_test_security(void);
 #endif

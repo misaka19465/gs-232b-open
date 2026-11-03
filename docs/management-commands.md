@@ -141,7 +141,7 @@ PROV START 要求两轴已知全停、没有待运行序列、上传或校准；
 
 APPLY 要求两轴无动作、已知全停，无已加载序列、上传或校准，并匹配 candidate_id 及可选 revision。试运行 ID 跨重启不复用；试运行不依赖原连接，新授权连接可凭 ID 确认。APPLY 响应只表示请求接纳，须从 NET GET 核对实际接口已取得有效地址，才能确认；仅连上物理链路或关联 AP 不等于有 IP。
 
-超时、ABORT 或重启恢复旧 active。CONFIRM 成功才保存完整配置；写入失败不更新 active，回滚失败保留 `rollback_pending` 并继续恢复。新写入网络记录为 schema 3，已有 schema 1/2 仍可读取并默认 STA DHCP；无需为了升级擦除零点或其他配置。
+超时、ABORT 或重启恢复旧 active。CONFIRM 成功才保存完整配置；写入失败不更新 active，回滚失败保留 `rollback_pending` 并继续恢复。新写入网络记录为 schema 4，已有 schema 1/2/3 仍可读取；旧记录继续按开放/WPA2 的安全策略恢复，schema 1/2 默认 STA DHCP。无需为了升级擦除零点或其他配置。
 
 下面以 UART 设置 Wi-Fi 为例，各行发送 CR。将 SSID、密码及响应 ID 换为实际值：
 
@@ -164,13 +164,15 @@ APPLY 要求两轴无动作、已知全停，无已加载序列、上传或校�
 | 配置字段 | 规则 |
 | --- | --- |
 | `eth` | mode 为 dhcp/static；静态支持 address、netmask、gateway、dns1、dns2 |
-| `wifi` | enabled、ssid、password，以及独立 mode/address/netmask/gateway；可选 security 只接受 `wpa2-personal`，开放网络由空密码表示；不接受 DNS 字段 |
+| `wifi` | enabled、ssid、password、可选 security，以及独立 mode/address/netmask/gateway；security 支持 `wpa-personal`、`wpa2-personal`、`wpa3-personal`（SAE）和 `auto`；开放网络可用 `open` 或空密码表示；不接受 DNS 字段 |
 | IPv4 | 严格四段十进制，无前导零；单播主机，连续 /1～/30 掩码，非零网关须同子网且不同于本机；可省略网关或使用 0.0.0.0 |
-| Wi-Fi SSID | 解码后 1～32 个 UTF-8 字节；仅 2.4GHz 开放网络或 WPA2-Personal |
-| Wi-Fi 密码 | 空字符串表示开放网络；WPA2 为 8～63 可打印 ASCII 字节或 64 位十六进制 PSK，不接受脱敏占位字符串 |
+| Wi-Fi SSID | 解码后 1～32 个 UTF-8 字节；ESP32-C3 仅支持 2.4GHz |
+| Wi-Fi 密码 | WPA/WPA2 或 auto 为 8～63 个可打印 ASCII 字节或 64 位十六进制 PSK；WPA3 SAE 为 1～63 个可打印 ASCII 字节，不接受原始 PSK；空密码表示开放网络；不接受脱敏占位字符串 |
 | 省略字段 | 保留候选原值；NET GET 仅报告 password_set，不返回可回写的密码占位值 |
 | 禁用 Wi-Fi | enabled:false，可同时清空 SSID 和密码；不会修改 ETH 地址 |
 | 切回 DHCP | 设置相应 mode:"dhcp"；候选保留静态字段供编辑，实际地址以运行状态为准 |
+
+security 是管理接口的连接策略字段：`wpa-personal` 允许 WPA/WPA2/WPA3，`wpa2-personal` 允许 WPA2/WPA3，`wpa3-personal` 强制 SAE 与 PMF；同名 AP 优先更强认证，混合网络优先协商更强模式。配网页面无需选择认证方式：扫描网络时自动匹配，手动输入 SSID 时使用 `auto`，1～7 字节口令自动使用仅支持此长度的 WPA3 SAE。省略 security 保留候选策略，单独清空密码则切为开放网络。`open` 不能与非空口令组合；NET GET 的 config.security 是配置策略，不是已协商结果。不支持 WEP、OWE 或使用认证服务器的 Enterprise/EAP；配网热点自身继续使用 WPA2-Personal。
 
 ETH/STA 地址配置相互独立；DHCP 不要求外网。保存配置与运行地址分别报告，不能把 candidate 或旧 DHCP 租约当作当前连接成功的证据。
 

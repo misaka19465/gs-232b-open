@@ -30,6 +30,7 @@ import { t, setMessage, followBrowserLanguage } from './localization.js';
 import { icon } from './icons.js';
 import { ManagementChannel } from './management-channel.js';
 import { fetchNetworks } from './network-scan.js';
+import { securityForAuth, securityForPassword } from './wifi-security.js';
 import { validateSsid, validatePassword, ipv4Configuration } from './validation.js';
 
 const $ = id => document.getElementById(id);
@@ -141,10 +142,12 @@ async function scan() {
     const networks = new Map();
     for (const ap of reply.aps || []) {
       if (!validateSsid(ap.ssid)) continue;
+      const security = securityForAuth(ap.auth);
+      if (security === null) continue;
       const secure = ap.auth !== 0;
-      const key = JSON.stringify([ap.ssid, secure]);
+      const key = JSON.stringify([ap.ssid, security]);
       const previous = networks.get(key);
-      if (!previous || ap.rssi > previous.rssi) networks.set(key, { ...ap, secure });
+      if (!previous || ap.rssi > previous.rssi) networks.set(key, { ...ap, secure, security });
     }
     const list = [...networks.values()].sort((a, b) => b.rssi - a.rssi);
     const other = $('other-network');
@@ -182,18 +185,24 @@ async function join() {
   $('dialog-error').hidden = true;
   if (manual) {
     const ssid = $('manual-ssid').value, key = $('manual-key').value;
+    const security = securityForPassword(key);
     if (!validateSsid(ssid)) { error('invalidSsid'); return; }
-    if (key && !validatePassword(key)) { error('invalidPassword'); return; }
-    showNetwork({ ssid, secure: !!key }, key);
+    if (key && !validatePassword(key, security)) {
+      error(security === 'wpa3-personal' ? 'invalidSaePassword' : 'invalidPassword'); return;
+    }
+    showNetwork({ ssid, secure: !!key, security, automatic: true }, key);
     return;
   }
   if (!selection) return;
   const password = selection.secure ? $('password').value : '';
-  if (selection.secure && !validatePassword(password)) { error('invalidPassword'); return; }
+  const security = selection.automatic ? securityForPassword(password) : selection.security;
+  if (selection.secure && !validatePassword(password, security)) {
+    error(security === 'wpa3-personal' ? 'invalidSaePassword' : 'invalidPassword'); return;
+  }
   let ip;
   try { ip = ipv4Configuration($('ip-mode').value, $('ip-address').value, $('netmask').value, $('gateway').value); }
   catch (failure) { error(failure.message); return; }
-  const wifi = { enabled: true, ssid: selection.ssid, password, ...ip };
+  const wifi = { enabled: true, ssid: selection.ssid, password, security, ...ip };
   working = true; controls();
   let candidate = false;
   try {

@@ -22,7 +22,9 @@ export function validateSsid(ssid) {
     new TextEncoder().encode(ssid).length >= 1 && new TextEncoder().encode(ssid).length <= 32;
 }
 
-export function validatePassword(password) {
+/** 校验个人网络口令；WPA3 SAE 不使用 64 位原始 PSK。 */
+export function validatePassword(password, security = 'auto') {
+  if (security === 'wpa3-personal') return /^[\x20-\x7e]{1,63}$/.test(password);
   return /^[\x20-\x7e]{8,63}$/.test(password) || /^[0-9a-fA-F]{64}$/.test(password);
 }
 

@@ -348,33 +348,47 @@ gs232b_error_t gs232b_persistence_display_commit(
                                      sizeof(payload), new_revision);
 }
 
+gs232b_wifi_sta_config_t gs232b_persistence_network_wifi(const gs232b_network_config_t *config)
+{
+    gs232b_wifi_sta_config_t wifi = {
+        .enabled = config->enabled, .mode = config->wifi_mode, .ipv4 = config->wifi_ipv4,
+        .security = config->security == GS232B_NETWORK_SECURITY_WPA_PERSONAL ? GS232B_WIFI_STA_SECURITY_WPA_PERSONAL :
+            config->security == GS232B_NETWORK_SECURITY_WPA2_PERSONAL ? GS232B_WIFI_STA_SECURITY_WPA2_PERSONAL :
+            config->security == GS232B_NETWORK_SECURITY_WPA3_PERSONAL ? GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL :
+            GS232B_WIFI_STA_SECURITY_AUTO
+    };
+    memcpy(wifi.ssid, config->ssid, sizeof(wifi.ssid));
+    memcpy(wifi.password, config->password, sizeof(wifi.password));
+    return wifi;
+}
+
 static bool network_config_valid(const gs232b_network_config_t *config)
 {
     if (config == NULL || !gs232b_ethernet_config_valid(&config->eth) ||
         config->ssid_length > GS232B_NETWORK_SSID_MAX ||
         config->password_length > GS232B_NETWORK_PASSWORD_MAX ||
-        config->security > GS232B_NETWORK_SECURITY_WPA2_PERSONAL ||
+        config->security < GS232B_NETWORK_SECURITY_OPEN ||
+        config->security > GS232B_NETWORK_SECURITY_PERSONAL_AUTO ||
         config->ssid[config->ssid_length] != '\0' ||
         config->password[config->password_length] != '\0') {
         return false;
     }
-    if (config->wifi_mode != GS232B_WIFI_STA_DHCP && config->wifi_mode != GS232B_WIFI_STA_STATIC) return false;
-    if (config->wifi_mode == GS232B_WIFI_STA_STATIC) {
-        const gs232b_ethernet_config_t ip = {.mode = GS232B_ETHERNET_STATIC,
-            .ipv4 = {.address = config->wifi_ipv4.address, .netmask = config->wifi_ipv4.netmask,
-                .gateway = config->wifi_ipv4.gateway}};
-        if (!gs232b_ethernet_config_valid(&ip)) return false;
+    if (strlen(config->ssid) != config->ssid_length ||
+        strlen(config->password) != config->password_length ||
+        ((config->security == GS232B_NETWORK_SECURITY_OPEN) != (config->password_length == 0))) return false;
+    const gs232b_wifi_sta_config_t wifi = gs232b_persistence_network_wifi(config);
+    return gs232b_wifi_sta_config_valid(&wifi);
+}
+
+static bool decoded_network_valid(gs232b_network_config_t *config, uint16_t schema)
+{
+    if (schema <= 3U) {
+        if (config->security > GS232B_NETWORK_SECURITY_WPA2_PERSONAL) return false;
+        /* NOTE: 旧 writer 允许禁用且凭据全空时残留 WPA2 枚举；恢复为等价的禁用空配置。 */
+        if (!config->enabled && config->ssid_length == 0U && config->password_length == 0U)
+            config->security = GS232B_NETWORK_SECURITY_OPEN;
     }
-    if (!config->enabled && config->ssid_length == 0 && config->password_length == 0) {
-        return true;
-    }
-    if (config->ssid_length == 0) {
-        return false;
-    }
-    if (config->security == GS232B_NETWORK_SECURITY_OPEN) {
-        return config->password_length == 0;
-    }
-    return config->password_length >= 8U;
+    return network_config_valid(config);
 }
 
 static bool decode_network_payload(const gs232b_persisted_record_t *record,
@@ -396,11 +410,12 @@ static bool decode_network_payload(const gs232b_persisted_record_t *record,
                GS232B_NETWORK_PASSWORD_MAX);
         config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
         config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
-        return network_config_valid(config);
+        return decoded_network_valid(config, record->schema_version);
     }
-    /* NOTE: schema 1/2 继续按原布局读取并默认 STA DHCP；仅新写入使用 schema 3。 */
+    /* NOTE: schema 1/2 默认 STA DHCP，schema 3 保留 IPv4；旧安全枚举仍表示 OPEN/WPA2。
+     * 仅 schema 4 可写新增的个人认证策略，不擦除既有网络或其他域。 */
     if ((record->schema_version == 2U && record->payload_size == current_size) ||
-        (record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK &&
+        ((record->schema_version == 3U || record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK) &&
          record->payload_size == current_size + 13U)) {
         const uint8_t *payload = record->payload;
         config->eth.mode = (gs232b_ethernet_mode_t)payload[0];
@@ -418,7 +433,7 @@ static bool decode_network_payload(const gs232b_persisted_record_t *record,
         memcpy(config->password, &wifi[4U + GS232B_NETWORK_SSID_MAX],
                GS232B_NETWORK_PASSWORD_MAX);
         config->last_confirmed_trial_id = read_u32(&payload[21U + legacy_size]);
-        if (record->schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK) {
+        if (record->schema_version >= 3U) {
             const uint8_t *ip = &payload[current_size];
             config->wifi_mode = (gs232b_wifi_sta_mode_t)ip[0];
             config->wifi_ipv4.address = read_u32(&ip[1]);
@@ -427,7 +442,7 @@ static bool decode_network_payload(const gs232b_persisted_record_t *record,
         }
         config->ssid[GS232B_NETWORK_SSID_MAX] = '\0';
         config->password[GS232B_NETWORK_PASSWORD_MAX] = '\0';
-        return wifi[0] <= 1U && network_config_valid(config);
+        return wifi[0] <= 1U && decoded_network_valid(config, record->schema_version);
     }
     return false;
 }

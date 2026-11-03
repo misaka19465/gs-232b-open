@@ -21,6 +21,12 @@
 
 #include <string.h>
 #include "esp_wifi_default.h"
+#include "sdkconfig.h"
+
+/* NOTE: 防止旧 sdkconfig 静默生成缺少 SAE 的固件；该项目仅提供个人认证。 */
+#if !CONFIG_ESP_WIFI_ENABLE_WPA3_SAE || !CONFIG_ESP_WIFI_ENABLE_SAE_H2E || CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
+#error "Enable WPA3 SAE/H2E and disable enterprise authentication; regenerate stale sdkconfig"
+#endif
 
 ESP_EVENT_DEFINE_BASE(GS232B_STA_FENCE_EVENT);
 
@@ -191,9 +197,17 @@ gs232b_error_t gs232b_sta_start(gs232b_esp_wifi_sta_t *adapter)
     if (adapter->configured.enabled) {
         memcpy(credentials.sta.ssid, adapter->configured.ssid, strlen(adapter->configured.ssid));
         memcpy(credentials.sta.password, adapter->configured.password, strlen(adapter->configured.password));
+        const gs232b_wifi_sta_security_t security = adapter->configured.security;
+        /* NOTE: threshold 是最低强度，不是精确选择器；混合 AP 由 SDK 优先协商更强模式。 */
         credentials.sta.threshold.authmode = adapter->configured.password[0] == '\0' ?
-            WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+            WIFI_AUTH_OPEN : security == GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL ?
+            WIFI_AUTH_WPA3_PSK : security == GS232B_WIFI_STA_SECURITY_WPA2_PERSONAL ?
+            WIFI_AUTH_WPA2_PSK : WIFI_AUTH_WPA_PSK;
+        credentials.sta.pmf_cfg.required = security == GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL;
+        credentials.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+        credentials.sta.sae_pk_mode = WPA3_SAE_PK_MODE_DISABLED;
         credentials.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+        credentials.sta.sort_method = WIFI_CONNECT_AP_BY_SECURITY;
         credentials.sta.failure_retry_cnt = 0;
         result = sdk_result(adapter, esp_wifi_set_config(WIFI_IF_STA, &credentials));
         memset(&credentials, 0, sizeof(credentials));

@@ -42,6 +42,7 @@ gs232b_net_changes_t gs232b_net_config_changes(const gs232b_net_config_t *active
         .wifi = active->wifi.enabled != candidate->wifi.enabled ||
             strcmp(active->wifi.ssid, candidate->wifi.ssid) != 0 ||
             strcmp(active->wifi.password, candidate->wifi.password) != 0 ||
+            active->wifi.security != candidate->wifi.security ||
             active->wifi.mode != candidate->wifi.mode ||
             (candidate->wifi.mode == GS232B_WIFI_STA_STATIC &&
              (active->wifi.ipv4.address != candidate->wifi.ipv4.address ||
@@ -93,7 +94,10 @@ static gs232b_network_config_t persisted_config(const gs232b_net_config_t *confi
         .eth = config->eth,
         .enabled = config->wifi.enabled,
         .security = config->wifi.password[0] == '\0' ? GS232B_NETWORK_SECURITY_OPEN :
-            GS232B_NETWORK_SECURITY_WPA2_PERSONAL,
+            config->wifi.security == GS232B_WIFI_STA_SECURITY_WPA_PERSONAL ? GS232B_NETWORK_SECURITY_WPA_PERSONAL :
+            config->wifi.security == GS232B_WIFI_STA_SECURITY_WPA2_PERSONAL ? GS232B_NETWORK_SECURITY_WPA2_PERSONAL :
+            config->wifi.security == GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL ? GS232B_NETWORK_SECURITY_WPA3_PERSONAL :
+            GS232B_NETWORK_SECURITY_PERSONAL_AUTO,
         .wifi_mode = config->wifi.mode,
         .wifi_ipv4 = config->wifi.mode == GS232B_WIFI_STA_STATIC ? config->wifi.ipv4 :
             (gs232b_wifi_sta_address_t){0},

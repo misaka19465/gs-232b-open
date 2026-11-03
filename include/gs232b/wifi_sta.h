@@ -33,6 +33,15 @@ typedef enum {
     GS232B_WIFI_STA_STATIC
 } gs232b_wifi_sta_mode_t;
 
+/* NOTE: Personal 模式表示最低认证强度；AUTO 允许 WPA/WPA2 PSK 与 WPA3 SAE。
+ * 空密码仅在 AUTO 下表示开放网络，企业认证不在此契约内。 */
+typedef enum {
+    GS232B_WIFI_STA_SECURITY_AUTO = 0,
+    GS232B_WIFI_STA_SECURITY_WPA_PERSONAL,
+    GS232B_WIFI_STA_SECURITY_WPA2_PERSONAL,
+    GS232B_WIFI_STA_SECURITY_WPA3_PERSONAL
+} gs232b_wifi_sta_security_t;
+
 /* NOTE: STA 静态地址仅用于局域网，不配置公网 DNS。 */
 typedef struct {
     uint32_t address, netmask, gateway;
@@ -42,6 +51,7 @@ typedef struct {
     bool enabled;
     char ssid[GS232B_WIFI_STA_SSID_MAX + 1U];
     char password[GS232B_WIFI_STA_PASSWORD_MAX + 1U];
+    gs232b_wifi_sta_security_t security;
     gs232b_wifi_sta_mode_t mode;
     gs232b_wifi_sta_address_t ipv4;
 } gs232b_wifi_sta_config_t;
@@ -88,7 +98,7 @@ typedef struct {
     uint64_t session_epoch;
 } gs232b_wifi_sta_snapshot_t;
 
-/** @brief 校验独立 IPv4、UTF-8 SSID；空密码为开放网络，WPA2 为 8..63 ASCII 或 64 位十六进制 PSK。 */
+/** @brief 校验 IPv4、UTF-8 SSID 和个人认证；PSK 为 8..63 ASCII 或 64 位 hex，SAE 为 1..63 ASCII。 */
 bool gs232b_wifi_sta_config_valid(const gs232b_wifi_sta_config_t *config);
 /** @brief 失败次数从 1 起对应 1/2/4/8/16/30 秒，后续保持 30 秒，不溢出。 */
 gs232b_time_us_t gs232b_wifi_sta_retry_delay(uint32_t consecutive_failures);

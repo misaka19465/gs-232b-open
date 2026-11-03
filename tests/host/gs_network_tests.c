@@ -26,6 +26,7 @@ bool network_validation_tests(void);
 bool network_lifecycle_tests(void);
 bool network_ipv4_tests(void);
 bool network_scan_tests(void);
+bool network_security_tests(void);
 
 static gs232b_network_config_t stored_config(const gs232b_net_config_t *config,
     uint32_t confirmed_trial_id)
@@ -33,7 +34,7 @@ static gs232b_network_config_t stored_config(const gs232b_net_config_t *config,
     gs232b_network_config_t stored = {
         .eth = config->eth,
         .enabled = config->wifi.enabled,
-        .security = GS232B_NETWORK_SECURITY_WPA2_PERSONAL,
+        .security = GS232B_NETWORK_SECURITY_PERSONAL_AUTO,
         .ssid_length = (uint8_t)strlen(config->wifi.ssid),
         .password_length = (uint8_t)strlen(config->wifi.password),
         .last_confirmed_trial_id = confirmed_trial_id
@@ -46,9 +47,7 @@ static gs232b_network_config_t stored_config(const gs232b_net_config_t *config,
 static gs232b_net_config_t runtime_config(const gs232b_network_config_t *stored)
 {
     gs232b_net_config_t config = {.eth = stored->eth};
-    config.wifi.enabled = stored->enabled;
-    memcpy(config.wifi.ssid, stored->ssid, stored->ssid_length + 1U);
-    memcpy(config.wifi.password, stored->password, stored->password_length + 1U);
+    config.wifi = gs232b_persistence_network_wifi(stored);
     return config;
 }
 
@@ -391,7 +390,7 @@ int main(void)
         !test_apply_failure_and_persistence_boundaries() ||
         !test_motion_sequence_calibration_gate() ||
         !test_restart_discards_trial_and_rejects_old_id() ||
-        !network_validation_tests() || !network_lifecycle_tests() ||
+        !network_security_tests() || !network_validation_tests() || !network_lifecycle_tests() ||
         !network_ipv4_tests() || !network_scan_tests()) return 1;
     return 0;
 }

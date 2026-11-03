@@ -24,13 +24,24 @@ ESP_EVENT_DECLARE_BASE(WIFI_EVENT);
 typedef enum { WIFI_MODE_NULL, WIFI_MODE_STA, WIFI_MODE_AP, WIFI_MODE_APSTA } wifi_mode_t;
 typedef enum { WIFI_IF_STA, WIFI_IF_AP } wifi_interface_t;
 typedef enum { WIFI_STORAGE_FLASH, WIFI_STORAGE_RAM } wifi_storage_t;
-typedef enum { WIFI_AUTH_OPEN, WIFI_AUTH_WPA2_PSK } wifi_auth_mode_t;
+typedef enum { WIFI_AUTH_OPEN, WIFI_AUTH_WEP, WIFI_AUTH_WPA_PSK, WIFI_AUTH_WPA2_PSK,
+    WIFI_AUTH_WPA_WPA2_PSK, WIFI_AUTH_ENTERPRISE, WIFI_AUTH_WPA3_PSK,
+    WIFI_AUTH_WPA2_WPA3_PSK, WIFI_AUTH_WAPI_PSK, WIFI_AUTH_OWE } wifi_auth_mode_t;
+typedef enum { WIFI_CONNECT_AP_BY_SIGNAL, WIFI_CONNECT_AP_BY_SECURITY } wifi_sort_method_t;
+typedef enum { WPA3_SAE_PWE_UNSPECIFIED, WPA3_SAE_PWE_HUNT_AND_PECK,
+    WPA3_SAE_PWE_HASH_TO_ELEMENT, WPA3_SAE_PWE_BOTH } wifi_sae_pwe_method_t;
+typedef enum { WPA3_SAE_PK_MODE_AUTOMATIC, WPA3_SAE_PK_MODE_ONLY,
+    WPA3_SAE_PK_MODE_DISABLED } wifi_sae_pk_mode_t;
 #define WIFI_ALL_CHANNEL_SCAN 1
 #define WIFI_INIT_CONFIG_DEFAULT() {.nvs_enable = 1}
 typedef struct { int nvs_enable; } wifi_init_config_t;
 typedef struct {
     uint8_t ssid[32], password[64];
     struct { wifi_auth_mode_t authmode; } threshold;
+    struct { bool capable, required; } pmf_cfg;
+    wifi_sae_pwe_method_t sae_pwe_h2e;
+    wifi_sae_pk_mode_t sae_pk_mode;
+    wifi_sort_method_t sort_method;
     int scan_method;
     uint8_t failure_retry_cnt;
 } wifi_sta_config_t;

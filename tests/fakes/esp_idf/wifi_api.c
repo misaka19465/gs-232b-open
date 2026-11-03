@@ -186,9 +186,7 @@ esp_err_t esp_wifi_set_mode(wifi_mode_t mode)
 
 esp_err_t esp_wifi_set_config(wifi_interface_t interface, wifi_config_t *config)
 {
-    assert((interface == WIFI_IF_STA &&
-            config->sta.threshold.authmode == (config->sta.password[0] == '\0' ?
-                WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK)) || interface == WIFI_IF_AP);
+    assert(interface == WIFI_IF_STA || interface == WIFI_IF_AP);
     if (interface == WIFI_IF_STA) assert(config->sta.failure_retry_cnt == 0);
     const esp_err_t error = call(WIFI_FAKE_CONFIG);
     if (error != ESP_OK) { return error; }

@@ -88,16 +88,17 @@ static bool test_network_schema_roundtrip(void)
     gs232b_persisted_record_t record;
     CHECK(gs232b_persistence_load(&store, GS232B_STORE_NETWORK, &record) == GS232B_OK);
     CHECK(record.schema_version == GS232B_PERSISTENCE_SCHEMA_NETWORK);
-    for (uint16_t schema = 1; schema <= 2; ++schema) {
+    for (uint16_t schema = 1; schema <= 3; ++schema) {
         gs232b_fake_store_t old;
         gs232b_fake_store_init(&old);
         const gs232b_store_t legacy = gs232b_fake_store_port(&old);
         const size_t offset = schema == 1 ? 21U : 0U;
-        const size_t suffix = schema == 1 ? 17U : 13U;
+        const size_t suffix = schema == 1 ? 17U : schema == 2 ? 13U : 0U;
         CHECK(gs232b_persistence_commit(&legacy, GS232B_STORE_NETWORK, 0, schema,
             record.payload + offset, record.payload_size - offset - suffix, &revision) == GS232B_OK);
         CHECK(gs232b_persistence_network_load(&legacy, &loaded, &revision) == GS232B_OK);
-        CHECK(loaded.wifi_mode == GS232B_WIFI_STA_DHCP && loaded.wifi_ipv4.address == 0);
+        CHECK(loaded.wifi_mode == (schema == 3 ? GS232B_WIFI_STA_STATIC : GS232B_WIFI_STA_DHCP));
+        CHECK(loaded.wifi_ipv4.address == (schema == 3 ? config.wifi_ipv4.address : 0));
         CHECK(loaded.security == GS232B_NETWORK_SECURITY_OPEN && strcmp(loaded.ssid, "open") == 0);
         CHECK(loaded.last_confirmed_trial_id == (schema == 1 ? 0U : 7U));
     }

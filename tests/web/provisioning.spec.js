@@ -279,36 +279,70 @@ test('validators enforce byte lengths, credential formats, and local IPv4 rules'
   expect(() => ipv4Configuration('static', '192.168.1.50', '255.255.255.0', '192.168.2.1')).toThrow();
 });
 
-for (const viewport of [{ width: 360, height: 800 }, { width: 430, height: 932 }, { width: 1280, height: 900 }]) {
-  test(`Material You visual states at ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    await mockDevice(page);
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    await page.goto('/provisioning.html');
-    await expect(page.locator('#networks .network-row')).toHaveCount(4);
-    const screenshot = async name => {
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: 'disabled' });
-    };
-    await screenshot('list');
-    await page.locator('#networks .network-row').first().click();
-    await expect(input(page, 'password')).toBeVisible();
-    await screenshot('password');
-    await page.locator('#advanced').click();
-    await screenshot('advanced-dhcp');
-    await page.locator('#ip-mode').click();
-    await page.locator('mdui-menu-item[value="static"]').click();
-    await expect(input(page, 'ip-address')).toBeVisible();
-    await screenshot('advanced-static');
-    await page.locator('#close-dialog').click();
-    await expect(page.locator('#network-dialog')).toBeHidden();
-    await page.locator('#other-network').click();
-    await screenshot('other');
-    await page.locator('#close-dialog').click();
-    await expect(page.locator('#network-dialog')).toBeHidden();
-    await page.locator('#networks .network-row').filter({ hasText: 'Guest Network' }).click();
-    await screenshot('open-network');
-    expect(errors).toEqual([]);
+for (const locale of ['zh-CN', 'en-US']) {
+  test.describe(`Material You ${locale}`, () => {
+    test.use({ locale });
+    for (const viewport of [{ width: 360, height: 800 }, { width: 430, height: 932 }, { width: 1280, height: 900 }]) {
+      test(`visual states at ${viewport.width}px`, async ({ page }) => {
+        await page.setViewportSize(viewport);
+        await mockDevice(page);
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        await page.goto('/provisioning.html');
+        await expect(page.locator('#networks .network-row')).toHaveCount(4);
+        const screenshot = async name => {
+          expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+          await expect(page.locator('html')).toHaveAttribute('lang', locale === 'en-US' ? 'en' : 'zh-CN');
+          const panel = page.locator('#network-dialog').locator('div[part="panel"]');
+          if (await panel.isVisible()) {
+            await panel.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+            const bounds = await panel.boundingBox();
+            expect(bounds.x).toBeGreaterThanOrEqual(0);
+            expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
+            expect(await panel.evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(Math.ceil(bounds.width));
+            const advancedBounds = await page.locator('#advanced').boundingBox();
+            expect(advancedBounds.x).toBeGreaterThanOrEqual(bounds.x);
+            expect(advancedBounds.x + advancedBounds.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+            const joinBounds = await page.locator('#join').boundingBox();
+            expect(joinBounds.x).toBeGreaterThanOrEqual(bounds.x);
+            expect(joinBounds.x + joinBounds.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+            await expect(page.locator('#join')).toBeInViewport();
+          }
+          await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: 'disabled' });
+        };
+        await screenshot('list');
+        await page.locator('#networks .network-row').first().click();
+        await expect(input(page, 'password')).toBeVisible();
+        await screenshot('password');
+        await page.locator('#advanced').click();
+        await screenshot('advanced-dhcp');
+        await page.locator('#ip-mode').click();
+        await page.locator('mdui-menu-item[value="static"]').click();
+        await expect(input(page, 'ip-address')).toBeVisible();
+        await screenshot('advanced-static');
+        await input(page, 'password').fill('short');
+        await page.locator('#join').click();
+        await expect(page.locator('#dialog-error')).toBeVisible();
+        await expect(page.locator('#dialog-error')).toBeInViewport({ ratio: 0.98 });
+        const helperBottom = await page.locator('#gateway').evaluate(element =>
+          element.shadowRoot.querySelector('[part="supporting"]').getBoundingClientRect().bottom);
+        expect((await page.locator('#dialog-error').boundingBox()).y).toBeGreaterThanOrEqual(helperBottom);
+        await screenshot('validation-error');
+        await page.locator('#close-dialog').click();
+        await expect(page.locator('#network-dialog')).toBeHidden();
+        await page.locator('#other-network').click();
+        await screenshot('other');
+        await page.locator('#close-dialog').click();
+        await expect(page.locator('#network-dialog')).toBeHidden();
+        await page.locator('#networks .network-row').filter({ hasText: 'Guest Network' }).click();
+        await screenshot('open-network');
+        await page.locator('#join').click();
+        await expect(page.locator('#trial-card')).toBeVisible();
+        await expect(page.locator('#trial-remaining')).toContainText(locale === 'en-US' ? 'seconds' : '秒');
+        await page.locator('#trial-card').scrollIntoViewIfNeeded();
+        await screenshot('trial');
+        expect(errors).toEqual([]);
+      });
+    }
   });
 }

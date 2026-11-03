@@ -113,14 +113,15 @@ svg { display: block; width: 24px; height: 24px; fill: currentColor; flex: 0 0 a
 #network-dialog::part(panel) { width: 420px; max-width: calc(100vw - 40px); }
 #network-dialog::part(header) { padding-bottom: 12px; }
 #network-dialog::part(body) { padding-top: 0; }
-#network-dialog::part(action) { gap: 8px; padding-top: 24px; }
+#network-dialog::part(action) { flex-wrap: wrap; gap: 8px; padding-top: 24px; }
 .dialog-header { display: grid; grid-template-columns: 1fr auto; gap: 18px; width: 100%; }
 .dialog-header h2 { grid-column: 1 / -1; margin: 0; font-size: 24px; line-height: 1.35; font-weight: 400; overflow-wrap: anywhere; }
 .dialog-icon { align-self: center; color: rgb(var(--mdui-color-secondary)); }
 .dialog-icon svg { width: 28px; height: 28px; }
 #close-dialog { margin: -10px -10px 0 0; }
 .dialog-description { margin: 0 0 24px; color: rgb(var(--mdui-color-on-surface-variant)); font-size: 14px; line-height: 1.6; }
-.field-stack { display: grid; gap: 20px; }
+/* NOTE: 避免网格拉伸使文本框的 100% 高容器挤出帮助文本，支持多行翻译。 */
+.field-stack { display: grid; gap: 20px; align-items: start; }
 mdui-text-field, mdui-select { display: block; width: 100%; --shape-corner: 12px; }
 .advanced-panel { margin-top: 24px; padding-top: 24px; border-top: 1px solid rgb(var(--mdui-color-outline-variant)); }
 .error-message { margin: 18px 0 0; font-size: 13px; line-height: 1.6; color: rgb(var(--mdui-color-error)); }

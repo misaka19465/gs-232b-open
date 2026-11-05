@@ -49,8 +49,6 @@ static bool independent_configs(void)
             CHECK(!a->zero_valid && a->zero_uv == 0);
             CHECK(a->minimum_mdeg == b->minimum_mdeg && a->maximum_mdeg == b->maximum_mdeg);
             CHECK(a->tolerance_mdeg == b->tolerance_mdeg && a->slowdown_mdeg == b->slowdown_mdeg);
-            CHECK(a->progress_mdeg == b->progress_mdeg && a->reverse_mdeg == b->reverse_mdeg);
-            CHECK(a->no_progress_timeout_us == b->no_progress_timeout_us && a->run_timeout_us == b->run_timeout_us);
         }
     }
     configs[0].axes[0].tolerance_mdeg = 1000;

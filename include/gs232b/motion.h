@@ -44,10 +44,6 @@ typedef struct {
     int32_t maximum_mdeg;
     int32_t tolerance_mdeg;
     int32_t slowdown_mdeg;
-    int32_t progress_mdeg;
-    int32_t reverse_mdeg;
-    gs232b_time_us_t no_progress_timeout_us;
-    gs232b_time_us_t run_timeout_us;
 } gs232b_motion_axis_config_t;
 
 typedef struct {
@@ -65,8 +61,7 @@ typedef struct {
     gs232b_fault_snapshot_t fault;
 } gs232b_motion_snapshot_t;
 
-/* NOTE: 私有状态布局仅用于静态分配，不得由调用方修改。计时从实际方向
- * 成功提交后开始；同向替换命令不重置连续运行或无进展计时。 */
+/* NOTE: 私有状态布局仅用于静态分配，不得由调用方修改。 */
 typedef struct {
     gs232b_feedback_filter_t filter;
     gs232b_axis_mode_t intent;
@@ -75,11 +70,6 @@ typedef struct {
     bool raw_position_valid;
     bool sample_seen;
     gs232b_time_us_t latest_sample_at_us;
-    int8_t watched_direction;
-    gs232b_time_us_t run_started_at_us;
-    gs232b_time_us_t progress_at_us;
-    int64_t progress_position_mdeg;
-    int64_t furthest_position_mdeg;
 } gs232b_motion_axis_t;
 
 /* NOTE: 与输出管理器共用一个串行所有者；回调不得重入。manager 和采样
@@ -98,8 +88,7 @@ typedef struct {
 
 /**
  * @brief 初始化固件配置，两轴默认禁用且没有零点。
- * @note 初始参数为容差 0.5°、AZ 减速区 15°、进展阈值 0.1°、反向阈值
- *       1°、无进展 5s、连续运行 300s、AZ PWM 800/300‰。
+ * @note 初始参数为容差 0.5°、AZ 减速区 15°、AZ PWM 800/300‰。
  *       X1..X4 默认为 250/500/750/1000‰，可在初始化前替换四档固件参数。
  *       EL 不支持 PWM 减速。
  */

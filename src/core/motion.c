@@ -61,10 +61,7 @@ static bool config_valid(gs232b_axis_id_t axis,
            config->tolerance_mdeg > 0 &&
            config->tolerance_mdeg < config->maximum_mdeg - config->minimum_mdeg &&
            config->slowdown_mdeg >= config->tolerance_mdeg &&
-           config->slowdown_mdeg <= maximum && config->progress_mdeg > 0 &&
-           config->reverse_mdeg >= config->progress_mdeg &&
-           config->reverse_mdeg <= maximum && config->no_progress_timeout_us != 0 &&
-           config->run_timeout_us != 0 &&
+           config->slowdown_mdeg <= maximum &&
            (!config->zero_valid ||
             (config->zero_uv <= GS232B_FEEDBACK_FULL_SCALE_UV &&
              GS232B_FEEDBACK_FULL_SCALE_UV - config->zero_uv >=
@@ -102,10 +99,6 @@ void gs232b_motion_config_init(gs232b_motion_config_t *config)
                                       &axis->minimum_mdeg, &axis->maximum_mdeg);
         axis->tolerance_mdeg = 500;
         axis->slowdown_mdeg = 15000;
-        axis->progress_mdeg = 100;
-        axis->reverse_mdeg = 1000;
-        axis->no_progress_timeout_us = UINT64_C(5000000);
-        axis->run_timeout_us = UINT64_C(300000000);
     }
 }
 

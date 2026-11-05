@@ -19,18 +19,10 @@
 
 #include "motion_internal.h"
 
-static int8_t applied_direction(const gs232b_output_frame_t *frame, int axis)
-{
-    const int direction = axis == GS232B_AXIS_AZIMUTH ? (int)frame->azimuth :
-                                                     (int)frame->elevation;
-    return direction == 0 ? 0 : (direction == 1 ? 1 : -1);
-}
-
 void gs232b_motion_cancel_axis(gs232b_motion_t *motion, int axis)
 {
     motion->axes[axis].intent = GS232B_AXIS_IDLE;
     motion->axes[axis].manual_direction = GS232B_MOTION_STOP;
-    motion->axes[axis].watched_direction = 0;
     motion->state.axes[axis].target_mdeg = 0;
     motion->state.axes[axis].target_valid = false;
 }
@@ -45,22 +37,6 @@ void gs232b_motion_sync_output(gs232b_motion_t *motion)
     for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
         gs232b_motion_axis_t *axis = &motion->axes[i];
         gs232b_axis_snapshot_t *state = &motion->state.axes[i];
-        const int8_t direction = output.output.known ?
-            applied_direction(&output.output.last_successful, i) : 0;
-        if (axis->watched_direction != direction) {
-            axis->watched_direction = direction;
-            axis->run_started_at_us = now_us;
-            axis->progress_at_us = now_us;
-            /* NOTE: 换向后重新以原始位置建窗，防止旧方向的滤波尾迹被误判
-             * 为新方向反接；方向与无进展检测仅统计实际使能的区间。 */
-            if (direction != 0 && axis->raw_position_valid) {
-                gs232b_feedback_filter_init(&axis->filter);
-                gs232b_feedback_filter_push(&axis->filter, &state->sample, now_us);
-                state->position_mdeg = axis->raw_position_mdeg;
-                axis->progress_position_mdeg = (int64_t)direction * state->position_mdeg;
-                axis->furthest_position_mdeg = axis->progress_position_mdeg;
-            }
-        }
         if (!motion->config.axes[i].enabled) {
             state->mode = GS232B_AXIS_DISABLED;
         } else if (motion->state.fault.code != GS232B_FAULT_NONE) {
@@ -165,37 +141,6 @@ gs232b_error_t gs232b_motion_drive(gs232b_motion_t *motion)
     return GS232B_OK;
 }
 
-static gs232b_fault_code_t check_progress(gs232b_motion_t *motion, int i,
-                                         gs232b_time_us_t now_us)
-{
-    gs232b_motion_axis_t *axis = &motion->axes[i];
-    const gs232b_motion_axis_config_t *config = &motion->config.axes[i];
-    if (axis->watched_direction == 0) {
-        return GS232B_FAULT_NONE;
-    }
-    if (now_us < axis->run_started_at_us ||
-        now_us - axis->run_started_at_us >= config->run_timeout_us) {
-        return GS232B_FAULT_RUN_TIMEOUT;
-    }
-    const int64_t position = (int64_t)axis->watched_direction *
-                            motion->state.axes[i].position_mdeg;
-    if (position > axis->furthest_position_mdeg) {
-        axis->furthest_position_mdeg = position;
-    }
-    if (axis->furthest_position_mdeg - position >= config->reverse_mdeg) {
-        return GS232B_FAULT_FEEDBACK_DIRECTION;
-    }
-    if (position - axis->progress_position_mdeg >= config->progress_mdeg) {
-        axis->progress_position_mdeg = position;
-        axis->progress_at_us = now_us;
-    }
-    if (now_us < axis->progress_at_us ||
-        now_us - axis->progress_at_us >= config->no_progress_timeout_us) {
-        return GS232B_FAULT_NO_PROGRESS;
-    }
-    return GS232B_FAULT_NONE;
-}
-
 gs232b_error_t gs232b_motion_tick(gs232b_motion_t *motion)
 {
     if (!gs232b_motion_valid(motion)) {
@@ -220,15 +165,8 @@ gs232b_error_t gs232b_motion_tick(gs232b_motion_t *motion)
             return gs232b_motion_latch_fault(motion, code, error, (uint8_t)(1U << i));
         }
     }
-    const gs232b_time_us_t now_us = motion->manager->clock.now_us(motion->manager->clock.ctx);
-    for (int i = 0; i < GS232B_AXIS_COUNT; ++i) {
-        const gs232b_fault_code_t code = check_progress(motion, i, now_us);
-        if (code != GS232B_FAULT_NONE) {
-            return gs232b_motion_latch_fault(motion, code,
-                code == GS232B_FAULT_FEEDBACK_DIRECTION ? GS232B_ERROR_HARDWARE_FAULT :
-                                                        GS232B_ERROR_TIMEOUT,
-                (uint8_t)(1U << i));
-        }
-    }
+    /* NOTE: 方位/仰角输出经旋转器控制箱；不要按反馈进展速度、反馈方向或
+     * 连续运行时长锁存运动故障，避免控制箱响应及反馈特性造成误停。保留
+     * 采样有效性、软件行程限位和输出提交故障检查。 */
     return gs232b_motion_drive(motion);
 }

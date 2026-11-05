@@ -64,79 +64,37 @@ static bool clear_without_resuming(gs232b_motion_sim_t *sim)
     return true;
 }
 
-static bool test_reverse_and_no_progress_on_each_axis(void)
+static bool test_slow_stalled_and_reversed_motion_do_not_fault(void)
 {
     for (int axis = 0; axis < GS232B_AXIS_COUNT; ++axis) {
-        for (int failure = 0; failure < 2; ++failure) {
-            gs232b_motion_config_t config;
-            gs232b_motion_sim_config(&config);
-            config.axes[axis].no_progress_timeout_us = UINT64_C(100000);
-            if (failure == 0) {
-                config.axes[axis].no_progress_timeout_us = UINT64_C(5000000);
-            }
-            gs232b_motion_sim_t sim;
-            CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
-            sim.reversed[axis] = failure == 0;
-            sim.stalled[axis] = failure == 1;
-            const int32_t targets[] = {150000, 150000};
-            CHECK(gs232b_motion_goto(&sim.motion, GS232B_MOTION_ALL_AXES, targets) == GS232B_OK);
-            CHECK(advance_ok(&sim, (size_t)(WAIT_US / STEP_US)));
-            CHECK(fault_within(&sim, 60));
-            CHECK(expect_fault(&sim, failure == 0 ? GS232B_FAULT_FEEDBACK_DIRECTION :
-                                                   GS232B_FAULT_NO_PROGRESS, axis));
-            CHECK(sim.now_us >= WAIT_US + (failure == 1 ? UINT64_C(100000) : 0));
-            sim.reversed[axis] = false;
-            sim.stalled[axis] = false;
-            CHECK(clear_without_resuming(&sim));
-            CHECK(gs232b_motion_goto(&sim.motion, GS232B_MOTION_ALL_AXES, targets) == GS232B_OK);
-            CHECK(advance_ok(&sim, 20));
-            CHECK((sim.shadow & 0x0fU) == 0x05);
-            CHECK(gs232b_motion_stop(&sim.motion, GS232B_MOTION_ALL_AXES) == GS232B_OK);
-        }
-    }
-    return true;
-}
-
-static bool test_timeouts_survive_command_replacement(void)
-{
-    for (int axis = 0; axis < GS232B_AXIS_COUNT; ++axis) {
-        for (int manual = 0; manual < 2; ++manual) {
-            gs232b_motion_config_t config;
-            gs232b_motion_sim_config(&config);
-            config.axes[axis].run_timeout_us = UINT64_C(300000);
-            gs232b_motion_sim_t sim;
-            CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
-            const uint8_t mask = (uint8_t)(1U << axis);
-            int32_t targets[] = {130000, 130000};
-            CHECK(gs232b_motion_goto(&sim.motion, mask, targets) == GS232B_OK);
-            for (int i = 0; i < 24; ++i) {
-                CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_OK);
-                targets[axis] = (i & 1) ? 130000 : 140000;
-                CHECK((manual ? gs232b_motion_manual(&sim.motion, (gs232b_axis_id_t)axis,
-                                                     GS232B_MOTION_POSITIVE) :
-                                gs232b_motion_goto(&sim.motion, mask, targets)) == GS232B_OK);
-            }
-            CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_ERROR_TIMEOUT);
-            CHECK(expect_fault(&sim, GS232B_FAULT_RUN_TIMEOUT, axis));
-            CHECK(sim.now_us == WAIT_US + UINT64_C(300000));
-            CHECK(clear_without_resuming(&sim));
-        }
-
         gs232b_motion_config_t config;
         gs232b_motion_sim_config(&config);
-        config.axes[axis].no_progress_timeout_us = UINT64_C(200000);
         gs232b_motion_sim_t sim;
         CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
         sim.stalled[axis] = true;
-        const int32_t targets[] = {130000, 130000};
-        const uint8_t mask = (uint8_t)(1U << axis);
-        CHECK(gs232b_motion_goto(&sim.motion, mask, targets) == GS232B_OK);
-        for (int i = 0; i < 19; ++i) {
-            CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_OK);
-            CHECK(gs232b_motion_goto(&sim.motion, mask, targets) == GS232B_OK);
-        }
-        CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_ERROR_TIMEOUT);
-        CHECK(expect_fault(&sim, GS232B_FAULT_NO_PROGRESS, axis));
+        CHECK(gs232b_motion_manual(&sim.motion, (gs232b_axis_id_t)axis,
+                                   GS232B_MOTION_POSITIVE) == GS232B_OK);
+        CHECK(gs232b_motion_sim_step(&sim, UINT64_C(301000000)) == GS232B_OK);
+        gs232b_motion_snapshot_t state;
+        CHECK(snapshot(&sim, &state));
+        CHECK(state.fault.code == GS232B_FAULT_NONE);
+        CHECK(state.output.known);
+        CHECK(axis == GS232B_AXIS_AZIMUTH ?
+              state.output.last_successful.azimuth == GS232B_AZ_CW :
+              state.output.last_successful.elevation == GS232B_EL_UP);
+        CHECK(gs232b_motion_stop(&sim.motion, GS232B_MOTION_ALL_AXES) == GS232B_OK);
+
+        CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
+        sim.reversed[axis] = true;
+        CHECK(gs232b_motion_manual(&sim.motion, (gs232b_axis_id_t)axis,
+                                   GS232B_MOTION_POSITIVE) == GS232B_OK);
+        CHECK(advance_ok(&sim, 20));
+        CHECK(snapshot(&sim, &state));
+        CHECK(state.fault.code == GS232B_FAULT_NONE);
+        CHECK(axis == GS232B_AXIS_AZIMUTH ?
+              state.output.last_successful.azimuth == GS232B_AZ_CW :
+              state.output.last_successful.elevation == GS232B_EL_UP);
+        CHECK(gs232b_motion_stop(&sim.motion, GS232B_MOTION_ALL_AXES) == GS232B_OK);
     }
     return true;
 }
@@ -274,21 +232,11 @@ static bool test_output_unknown_and_explicit_recovery(void)
     return true;
 }
 
-static bool test_time_origin_and_idle_peer_fault(void)
+static bool test_idle_peer_sample_fault(void)
 {
     gs232b_motion_config_t config;
     gs232b_motion_sim_config(&config);
-    config.axes[0].no_progress_timeout_us = UINT64_C(100000);
     gs232b_motion_sim_t sim;
-    CHECK(gs232b_motion_sim_init(&sim, &config, UINT64_MAX - UINT64_C(1000000), WAIT_US) ==
-          GS232B_OK);
-    sim.stalled[0] = true;
-    CHECK(gs232b_motion_manual(&sim.motion, 0, GS232B_MOTION_POSITIVE) == GS232B_OK);
-    CHECK(advance_ok(&sim, 14));
-    CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_ERROR_TIMEOUT);
-    CHECK(expect_fault(&sim, GS232B_FAULT_NO_PROGRESS, 0));
-
-    gs232b_motion_sim_config(&config);
     CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
     CHECK(gs232b_motion_manual(&sim.motion, 0, GS232B_MOTION_POSITIVE) == GS232B_OK);
     CHECK(advance_ok(&sim, 15));
@@ -326,39 +274,14 @@ static bool test_fault_cancels_pending_reversals(void)
     return true;
 }
 
-static bool test_watchdog_starts_after_output_completion(void)
-{
-    gs232b_motion_config_t config;
-    gs232b_motion_sim_config(&config);
-    config.axes[0].no_progress_timeout_us = UINT64_C(100000);
-    gs232b_motion_sim_t sim;
-    CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
-    sim.driver_latency_us = UINT64_C(50000);
-    sim.stalled[0] = true;
-    const int32_t target[] = {130000, 0};
-    CHECK(gs232b_motion_goto(&sim.motion, GS232B_MOTION_AZ_MASK, target) == GS232B_OK);
-    CHECK(gs232b_motion_sim_step(&sim, WAIT_US) == GS232B_OK);
-    CHECK(sim.now_us == WAIT_US + sim.driver_latency_us);
-    const gs232b_time_us_t started_at_us = sim.now_us;
-    CHECK(gs232b_motion_sim_step(&sim, UINT64_C(99999)) == GS232B_OK);
-    CHECK(gs232b_motion_sim_step(&sim, 1) == GS232B_ERROR_TIMEOUT);
-    CHECK(expect_fault(&sim, GS232B_FAULT_NO_PROGRESS, 0));
-    gs232b_motion_snapshot_t state;
-    CHECK(snapshot(&sim, &state));
-    CHECK(state.fault.occurred_at_us == started_at_us + UINT64_C(100000));
-    return true;
-}
-
 int main(void)
 {
-    if (!test_reverse_and_no_progress_on_each_axis() ||
-        !test_timeouts_survive_command_replacement() ||
+    if (!test_slow_stalled_and_reversed_motion_do_not_fault() ||
         !test_sample_faults_and_failed_clear() ||
         !test_limits_both_directions_and_raw_guard() ||
         !test_output_unknown_and_explicit_recovery() ||
-        !test_time_origin_and_idle_peer_fault() ||
-        !test_fault_cancels_pending_reversals() ||
-        !test_watchdog_starts_after_output_completion()) {
+        !test_idle_peer_sample_fault() ||
+        !test_fault_cancels_pending_reversals()) {
         return 1;
     }
     puts("motion fault tests passed (SIMULATION: injected faults, not hardware validation)");

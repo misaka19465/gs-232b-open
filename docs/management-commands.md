@@ -106,6 +106,8 @@ OWNER TAKE 不抢占他人，RELEASE 要求全停且无待运行序列或交互�
 
 MOTION STATUS 的角度单位为毫度、电压为微伏，含有效性及 `motion_ready`；无效角度、目标或未知方向为 null。方向 0 为停止、1 为方位 CW / 仰角 UP、2 为方位 CCW / 仰角 DOWN。轴禁用、零点不足、反馈或限位无效、输出未知或存在锁定故障时，`motion_ready` 为 false。
 
+空闲时无效反馈只报告 `position_valid=false` / `motion_ready=false`，不锁存 `FAULT_SAMPLE`；运动命令因位置未就绪返回错误且不提交方向输出。已有运动期间反馈失效仍会锁存故障并停机。
+
 应用看门狗默认关闭。仅当前控制者成功的完整命令或 SESSION PING 续期；旁路查询、失败或不完整输入、周期校准显示与 WS Ping/Pong 均不续期。到期关闭来源、清任务并尝试全停；迟到 PING 不恢复控制者。低速长序列上传时应选择足够长的期限，或先停机关闭看门狗。
 
 ### 管理 token

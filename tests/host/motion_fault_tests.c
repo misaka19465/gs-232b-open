@@ -246,6 +246,35 @@ static bool test_idle_peer_sample_fault(void)
     return true;
 }
 
+static bool test_idle_unconnected_feedback_is_not_latched(void)
+{
+    gs232b_motion_config_t config;
+    gs232b_motion_sim_config(&config);
+    gs232b_motion_sim_t sim;
+    CHECK(gs232b_motion_sim_init(&sim, &config, 0, WAIT_US) == GS232B_OK);
+    sim.adc_override[GS232B_AXIS_AZIMUTH] = true;
+    sim.adc_uv[GS232B_AXIS_AZIMUTH] = config.axes[GS232B_AXIS_AZIMUTH].zero_uv - 1U;
+    CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_OK);
+    gs232b_motion_snapshot_t state;
+    CHECK(snapshot(&sim, &state));
+    CHECK(state.fault.code == GS232B_FAULT_NONE);
+    CHECK(!state.axes[GS232B_AXIS_AZIMUTH].position_valid);
+    CHECK(gs232b_motion_manual(&sim.motion, GS232B_AXIS_AZIMUTH,
+                               GS232B_MOTION_POSITIVE) == GS232B_ERROR_NOT_READY);
+    CHECK(snapshot(&sim, &state));
+    CHECK(state.fault.code == GS232B_FAULT_NONE && stopped(&sim));
+    sim.adc_override[GS232B_AXIS_AZIMUTH] = false;
+    CHECK(gs232b_motion_sim_step(&sim, STEP_US) == GS232B_OK);
+    CHECK(gs232b_motion_manual(&sim.motion, GS232B_AXIS_AZIMUTH,
+                               GS232B_MOTION_POSITIVE) == GS232B_OK);
+    CHECK(advance_ok(&sim, 11));
+    CHECK(snapshot(&sim, &state));
+    CHECK(state.fault.code == GS232B_FAULT_NONE);
+    CHECK(state.output.last_successful.azimuth == GS232B_AZ_CW);
+    CHECK(gs232b_motion_stop(&sim.motion, GS232B_MOTION_ALL_AXES) == GS232B_OK);
+    return true;
+}
+
 static bool test_fault_cancels_pending_reversals(void)
 {
     gs232b_motion_config_t config;
@@ -281,6 +310,7 @@ int main(void)
         !test_limits_both_directions_and_raw_guard() ||
         !test_output_unknown_and_explicit_recovery() ||
         !test_idle_peer_sample_fault() ||
+        !test_idle_unconnected_feedback_is_not_latched() ||
         !test_fault_cancels_pending_reversals()) {
         return 1;
     }

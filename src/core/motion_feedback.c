@@ -94,8 +94,10 @@ gs232b_fault_code_t gs232b_motion_feedback_fault(const gs232b_motion_t *motion,
          runtime->raw_position_mdeg > state->maximum_mdeg)) {
         return GS232B_FAULT_LIMIT;
     }
-    if (!state->position_valid &&
-        (require_sample || state->sample_error == GS232B_ERROR_HARDWARE_FAULT)) {
+    /* NOTE: 未接线时反馈端被板上电阻拉到接近 0V，可能低于已保存零点。
+     * 空闲时只报告未就绪，不锁存 FAULT_SAMPLE；已有运动期间反馈失效才
+     * 锁存采样故障，允许先上电、后接旋转器自动恢复。 */
+    if (!state->position_valid && require_sample) {
         return GS232B_FAULT_SAMPLE;
     }
     return GS232B_FAULT_NONE;

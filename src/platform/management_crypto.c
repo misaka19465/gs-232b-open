@@ -19,12 +19,14 @@
 
 #include "../core/management_crypto.h"
 
+#include <limits.h>
+
 #if defined(ESP_PLATFORM) && !defined(GS232B_HOST_CRYPTO)
 #include "esp_app_desc.h"
 #include "psa/crypto.h"
 #else
+#include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <openssl/sha.h>
 #endif
 
 void gs232b_management_clear(void *bytes, size_t size)
@@ -33,40 +35,63 @@ void gs232b_management_clear(void *bytes, size_t size)
     while (size-- != 0) *out++ = 0;
 }
 
-gs232b_error_t gs232b_management_token(char token[65])
+gs232b_error_t gs232b_management_random(uint8_t *bytes, size_t size)
 {
-    uint8_t random[32];
+    if (bytes == NULL || size == 0) return GS232B_ERROR_INVALID_ARGUMENT;
 #if defined(ESP_PLATFORM) && !defined(GS232B_HOST_CRYPTO)
     if (psa_crypto_init() != PSA_SUCCESS ||
-        psa_generate_random(random, sizeof(random)) != PSA_SUCCESS) {
-        gs232b_management_clear(random, sizeof(random));
+        psa_generate_random(bytes, size) != PSA_SUCCESS) {
+        gs232b_management_clear(bytes, size);
         return GS232B_ERROR_HARDWARE_FAULT;
     }
 #else
-    if (RAND_bytes(random, sizeof(random)) != 1) {
-        gs232b_management_clear(random, sizeof(random));
+    if (size > INT_MAX || RAND_bytes(bytes, (int)size) != 1) {
+        gs232b_management_clear(bytes, size);
         return GS232B_ERROR_HARDWARE_FAULT;
     }
 #endif
-    static const char hex[] = "0123456789abcdef";
-    for (size_t i = 0; i < sizeof(random); ++i) {
-        token[i * 2U] = hex[random[i] >> 4];
-        token[i * 2U + 1U] = hex[random[i] & 15U];
-    }
-    token[64] = '\0';
-    gs232b_management_clear(random, sizeof(random));
     return GS232B_OK;
 }
 
-gs232b_error_t gs232b_management_digest(const uint8_t *bytes, size_t size, uint8_t digest[32])
+gs232b_error_t gs232b_management_derive_password(const uint8_t *password, size_t password_size,
+    const uint8_t salt[GS232B_ADMIN_SALT_SIZE], uint8_t verifier[GS232B_ADMIN_VERIFIER_SIZE])
 {
+    if (password == NULL || password_size == 0 || password_size > 64 || salt == NULL || verifier == NULL) {
+        return GS232B_ERROR_INVALID_ARGUMENT;
+    }
 #if defined(ESP_PLATFORM) && !defined(GS232B_HOST_CRYPTO)
-    size_t written = 0;
-    return psa_crypto_init() == PSA_SUCCESS &&
-        psa_hash_compute(PSA_ALG_SHA_256, bytes, size, digest, 32, &written) == PSA_SUCCESS &&
-        written == 32 ? GS232B_OK : GS232B_ERROR_HARDWARE_FAULT;
+    psa_key_derivation_operation_t operation = PSA_KEY_DERIVATION_OPERATION_INIT;
+    psa_status_t status = psa_crypto_init();
+    if (status == PSA_SUCCESS) {
+        status = psa_key_derivation_setup(&operation,
+            PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256));
+    }
+    if (status == PSA_SUCCESS) {
+        status = psa_key_derivation_input_bytes(&operation,
+            PSA_KEY_DERIVATION_INPUT_PASSWORD, password, password_size);
+    }
+    if (status == PSA_SUCCESS) {
+        status = psa_key_derivation_input_bytes(&operation,
+            PSA_KEY_DERIVATION_INPUT_SALT, salt, GS232B_ADMIN_SALT_SIZE);
+    }
+    if (status == PSA_SUCCESS) {
+        status = psa_key_derivation_input_integer(&operation,
+            PSA_KEY_DERIVATION_INPUT_COST, UINT32_C(20000));
+    }
+    if (status == PSA_SUCCESS) {
+        status = psa_key_derivation_output_bytes(&operation, verifier, GS232B_ADMIN_VERIFIER_SIZE);
+    }
+    (void)psa_key_derivation_abort(&operation);
+    if (status != PSA_SUCCESS) {
+        gs232b_management_clear(verifier, GS232B_ADMIN_VERIFIER_SIZE);
+        return GS232B_ERROR_HARDWARE_FAULT;
+    }
+    return GS232B_OK;
 #else
-    return SHA256(bytes, size, digest) != NULL ? GS232B_OK : GS232B_ERROR_HARDWARE_FAULT;
+    if (password_size > INT_MAX) return GS232B_ERROR_INVALID_ARGUMENT;
+    return PKCS5_PBKDF2_HMAC((const char *)password, (int)password_size, salt,
+        GS232B_ADMIN_SALT_SIZE, 20000, EVP_sha256(), GS232B_ADMIN_VERIFIER_SIZE,
+        verifier) == 1 ? GS232B_OK : GS232B_ERROR_HARDWARE_FAULT;
 #endif
 }
 

@@ -66,7 +66,8 @@ typedef struct {
     gs232b_session_key_t watchdog_session;
     gs232b_time_us_t watchdog_timeout_us;
     gs232b_time_us_t watchdog_renewed_us;
-    uint8_t admin_verifier[32];
+    uint8_t admin_salt[GS232B_ADMIN_SALT_SIZE];
+    uint8_t admin_verifier[GS232B_ADMIN_VERIFIER_SIZE];
     uint64_t admin_revision;
     bool admin_enabled;
     bool network_reset_pending;

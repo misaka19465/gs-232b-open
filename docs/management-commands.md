@@ -17,13 +17,13 @@
 
 | 入口 | 权限 |
 | --- | --- |
-| USB2 / UART1 | 本地管理，独占 ADMIN ENABLE/DISABLE 及 NET RESET |
+| USB2 / UART1 | 本地管理，独占 ADMIN SET/DISABLE 及 NET RESET |
 | ETH/STA `/ws/gs232b` | GS 命令及扩展；网络写入须先启用管理并对本连接 SESSION AUTH |
 | ETH/STA `/ws/manage` | 仅扩展；网络写入同样要求认证，拒绝普通 GS、校准和 M/W |
 | SoftAP `/ws/manage` | 仅在活动配网窗口内放行 SYS INFO、NET GET/SET、CFG 全组、PROV STATUS/SCAN/STOP |
 | SoftAP `/ws/gs232b` | 拒绝连接 |
 
-LAN 查询及 GS 运动面向可信局域网；网络管理 token 和 AP 密码不授予运动所有权。AP 不能操作 OWNER、应用看门狗、MOTION STATUS、FAULT CLEAR、管理 token、网络重置或延长自身窗口。当前无 TLS/HTTPS，token 不提供传输加密。
+LAN 查询及 GS 运动面向可信局域网；网络管理口令和 AP 密码不授予运动所有权。AP 不能操作 OWNER、应用看门狗、MOTION STATUS、FAULT CLEAR、管理口令、网络重置或延长自身窗口。当前无 TLS/HTTPS，网络管理认证不提供传输加密。
 
 ## 命令速查
 
@@ -40,8 +40,9 @@ LAN 查询及 GS 运动面向可信局域网；网络管理 token 和 AP 密码�
 | `!FAULT CLEAR` | 显式停机并重新检查反馈后清故障，不恢复旧动作 |
 | `!SESSION WATCHDOG {"timeout_ms":10000}` | 当前控制者启用应用看门狗；0 关闭，其他值为 1000～600000ms |
 | `!SESSION PING` | 当前控制者续期应用看门狗 |
-| `!ADMIN ENABLE` / `!ADMIN DISABLE` | UART 启用或轮换 / 禁用网络管理 token |
-| `!SESSION AUTH {"token":"..."}` | ETH/STA 当前连接认证；重连需重做 |
+| `!ADMIN SET {"password":"..."}` | UART 设置或更新网络管理口令 |
+| `!ADMIN DISABLE` | UART 禁用网络管理认证 |
+| `!SESSION AUTH {"password":"..."}` | ETH/STA 当前连接认证；重连需重做 |
 | `!NET GET` | 已确认 active、candidate、trial 和实际运行状态，密码仅报告是否已设 |
 | `!CFG BEGIN` | 从 active 建立唯一候选，返回 candidate_id 和 base_revision |
 | `!NET SET {...}` | 合并指定候选字段，省略字段保留 |
@@ -110,9 +111,11 @@ MOTION STATUS 的角度单位为毫度、电压为微伏，含有效性及 `moti
 
 应用看门狗默认关闭。仅当前控制者成功的完整命令或 SESSION PING 续期；旁路查询、失败或不完整输入、周期校准显示与 WS Ping/Pong 均不续期。到期关闭来源、清任务并尝试全停；迟到 PING 不恢复控制者。低速长序列上传时应选择足够长的期限，或先停机关闭看门狗。
 
-### 管理 token
+### 管理口令
 
-ADMIN ENABLE 产生 256bit、64 个十六进制字符的随机 token，仅在本次 UART 响应返回；请当场保存。设备只持久化校验材料，SESSION AUTH 不回显 token。禁用或换 key 成功后撤销全部网络管理身份与对应未应用候选；失败保留旧凭据，已开始的 trial 按自己的期限继续。密码和 token 不写入 USB 日志，也不出现在普通状态查询中。
+首次使用时通过 UART 发送 `!ADMIN SET {"password":"your-passphrase"}`；再次发送可更新口令。口令长度为 8～64 个可打印 ASCII 字符。设备为每个口令生成独立随机盐，持久化 20,000 轮 PBKDF2-HMAC-SHA-256 的校验值，不保存明文；设置响应不会回显口令或校验值。ETH/STA 使用 `!SESSION AUTH {"password":"your-passphrase"}` 认证当前连接，重连后需重新认证。成功更新或禁用会撤销全部网络管理身份和对应未应用候选；失败保留旧凭据，已开始的 trial 按自己的期限继续。口令不会出现在普通状态查询中。
+
+ADMIN DISABLE 会删除口令校验材料。LAN 管理认证没有 TLS 保护，应仅在可信网络中使用。
 
 ## 首次配网与恢复入口
 
@@ -186,4 +189,4 @@ UART 发送以下命令前，须全停、无序列/上传/校准、其他控制�
 !NET RESET {"confirm":"NETWORK_ONLY"}
 ```
 
-成功后恢复 ETH DHCP、禁用 STA、重新开启有界配网窗口。只删除网络当前及历史配置，保留显示、两轴零点、UART 波特率、管理 token、试运行 ID 及机械参数。擦除失败保持旧配置；擦除成功而运行恢复尚未完成时，新的网络写入暂拒，恢复继续重试。
+成功后恢复 ETH DHCP、禁用 STA、重新开启有界配网窗口。只删除网络当前及历史配置，保留显示、两轴零点、UART 波特率、管理口令校验值、试运行 ID 及机械参数。擦除失败保持旧配置；擦除成功而运行恢复尚未完成时，新的网络写入暂拒，恢复继续重试。

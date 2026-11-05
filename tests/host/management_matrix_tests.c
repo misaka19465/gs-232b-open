@@ -30,9 +30,9 @@ typedef struct {
 static const command_case_t cases[] = {
     {"!SYS INFO\r", NULL, 0, 2, true},
     {"!NET GET\r", NULL, 0, 2, true},
-    {"!ADMIN ENABLE\r", NULL, 0, 1, false},
+    {"!ADMIN SET {\"password\":\"matrix-admin-password\"}\r", NULL, 0, 1, false},
     {"!ADMIN DISABLE\r", NULL, 0, 1, false},
-    {"!SESSION AUTH {\"token\":\"%s\"}\r", "auth", 1, 0, false},
+    {"!SESSION AUTH {\"password\":\"%s\"}\r", "auth", 1, 0, false},
     {"!CFG BEGIN\r", NULL, 0, 1, false},
     {"!NET SET {\"wifi\":{\"ssid\":\"new-home\"}}\r", "candidate", 0, 1, false},
     {"!CFG CHECK\r", "candidate", 0, 1, false},
@@ -59,9 +59,9 @@ static bool prepare(gs_fixture_t *fixture, const command_case_t *test, char comm
 {
     if (test->prepare != NULL) {
         if (strcmp(test->prepare, "auth") == 0) {
-            char token[65];
-            CHECK(management_enable(fixture, token));
-            snprintf(command, 160, test->command, token);
+            const char *password = "matrix-admin-password";
+            CHECK(management_set_password(fixture, password));
+            snprintf(command, 160, test->command, password);
             return true;
         }
         CHECK(management_command(fixture, 0,

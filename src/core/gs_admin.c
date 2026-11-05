@@ -20,13 +20,25 @@
 #include "gs_dispatcher_internal.h"
 #include "management_crypto.h"
 
-#include <stdio.h>
 #include <string.h>
 
 static const gs232b_json_field_t auth_fields[] = {
-    {.name = "token", .type = GS232B_JSON_STRING, .required = true, .max_bytes = 64}
+    {.name = "password", .type = GS232B_JSON_STRING, .required = true, .max_bytes = 64}
 };
 static const gs232b_json_schema_t auth_schema = {auth_fields, 1};
+static const gs232b_json_field_t set_fields[] = {
+    {.name = "password", .type = GS232B_JSON_STRING, .required = true, .max_bytes = 64}
+};
+static const gs232b_json_schema_t set_schema = {set_fields, 1};
+
+static bool password_valid(const uint8_t *password, size_t size)
+{
+    if (size < 8U || size > 64U) return false;
+    for (size_t i = 0; i < size; ++i) {
+        if (password[i] < 0x20 || password[i] > 0x7e) return false;
+    }
+    return true;
+}
 
 gs232b_error_t gs232b_management_access(gs232b_dispatcher_t *dispatcher,
     const gs232b_extension_request_t *request)
@@ -95,26 +107,27 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
         revoke(dispatcher);
         dispatcher->admin_enabled = false;
         dispatcher->admin_revision = 0;
+        gs232b_management_clear(dispatcher->admin_salt, sizeof(dispatcher->admin_salt));
         gs232b_management_clear(dispatcher->admin_verifier, sizeof(dispatcher->admin_verifier));
         memcpy(data, response, sizeof(response) - 1U);
         *size = sizeof(response) - 1U;
         return GS232B_OK;
     }
-    uint8_t digest[32];
-    char token[65] = {0};
-    gs232b_error_t error;
+    uint8_t digest[GS232B_ADMIN_VERIFIER_SIZE] = {0};
+    uint8_t password[65] = {0};
     if (strcmp(request->cmd, "SESSION AUTH") == 0) {
         gs232b_json_value_t value;
         size_t length = 0;
-        error = gs232b_json_get(request->arguments, "token", &value);
-        if (error == GS232B_OK) error = gs232b_json_string_decode(value,
-            (uint8_t *)token, 64, &length);
-        if (error == GS232B_OK) error = gs232b_management_digest((uint8_t *)token, length, digest);
-        gs232b_management_clear(token, sizeof(token));
-        unsigned difference = (unsigned)(length ^ 64U);
+        gs232b_error_t error = gs232b_json_get(request->arguments, "password", &value);
+        unsigned difference = 0;
+        if (error == GS232B_OK) error = gs232b_json_string_decode(value, password, 64, &length);
+        if (error == GS232B_OK && !password_valid(password, length)) error = GS232B_ERROR_INVALID_ARGUMENT;
+        if (error == GS232B_OK) error = gs232b_management_derive_password(password, length,
+            dispatcher->admin_salt, digest);
         if (error == GS232B_OK) {
             for (size_t i = 0; i < sizeof(digest); ++i) difference |= digest[i] ^ dispatcher->admin_verifier[i];
         }
+        gs232b_management_clear(password, sizeof(password));
         gs232b_management_clear(digest, sizeof(digest));
         gs232b_dispatcher_session_t *slot =
             &dispatcher->sessions[request->context.session.session_id - 1U];
@@ -130,42 +143,60 @@ static gs232b_error_t handle(void *ctx, const gs232b_extension_request_t *reques
         *size = sizeof(response) - 1U;
         return GS232B_OK;
     }
-    /* NOTE: token 只进入本次 UART 响应；持久记录和会话只保存校验材料/身份位。 */
-    if (capacity < 92U) return GS232B_ERROR_BUFFER_TOO_SMALL;
-    error = gs232b_management_token(token);
-    if (error == GS232B_OK) error = gs232b_management_digest((uint8_t *)token, 64, digest);
+    static const char response[] = "{\"enabled\":true}";
+    if (capacity < sizeof(response) - 1U) return GS232B_ERROR_BUFFER_TOO_SMALL;
+    gs232b_json_value_t value;
+    size_t length = 0;
+    gs232b_error_t error = gs232b_json_get(request->arguments, "password", &value);
+    if (error == GS232B_OK) error = gs232b_json_string_decode(value, password, 64, &length);
+    if (error == GS232B_OK && !password_valid(password, length)) error = GS232B_ERROR_INVALID_ARGUMENT;
+    uint8_t salt[GS232B_ADMIN_SALT_SIZE] = {0};
+    if (error == GS232B_OK) error = gs232b_management_random(salt, sizeof(salt));
+    if (error == GS232B_OK) error = gs232b_management_derive_password(password, length, salt, digest);
+    uint8_t payload[GS232B_ADMIN_CREDENTIAL_SIZE];
+    memcpy(payload, salt, sizeof(salt));
+    memcpy(payload + sizeof(salt), digest, sizeof(digest));
     uint64_t revision = 0;
     if (error == GS232B_OK) error = gs232b_persistence_commit(&dispatcher->store,
         GS232B_STORE_ADMIN, dispatcher->admin_revision, GS232B_PERSISTENCE_SCHEMA_ADMIN,
-        digest, sizeof(digest), &revision);
+        payload, sizeof(payload), &revision);
     if (error == GS232B_OK) {
         revoke(dispatcher);
+        memcpy(dispatcher->admin_salt, salt, sizeof(salt));
         memcpy(dispatcher->admin_verifier, digest, sizeof(digest));
         dispatcher->admin_revision = revision;
         dispatcher->admin_enabled = true;
-        const int n = snprintf((char *)data, capacity, "{\"enabled\":true,\"token\":\"%s\"}", token);
-        if (n < 0 || (size_t)n >= capacity) error = GS232B_ERROR_BUFFER_TOO_SMALL;
-        else *size = (size_t)n;
+        memcpy(data, response, sizeof(response) - 1U);
+        *size = sizeof(response) - 1U;
     }
-    gs232b_management_clear(token, sizeof(token));
+    gs232b_management_clear(password, sizeof(password));
+    gs232b_management_clear(salt, sizeof(salt));
+    gs232b_management_clear(payload, sizeof(payload));
     gs232b_management_clear(digest, sizeof(digest));
     return error;
 }
 
-/** @brief 注册管理认证命令，并从独立域恢复 SHA-256 校验材料。 */
+/** @brief 恢复管理认证材料并注册口令设置、禁用及会话认证命令。 */
 gs232b_error_t gs232b_admin_register(gs232b_dispatcher_t *dispatcher)
 {
     gs232b_persisted_record_t record;
-    gs232b_error_t error = gs232b_persistence_load_schema(&dispatcher->store,
-        GS232B_STORE_ADMIN, GS232B_PERSISTENCE_SCHEMA_ADMIN, &record);
+    gs232b_error_t error = gs232b_persistence_load(&dispatcher->store,
+        GS232B_STORE_ADMIN, &record);
     if (error == GS232B_OK) {
-        if (record.payload_size != sizeof(dispatcher->admin_verifier)) return GS232B_ERROR_CORRUPT;
-        memcpy(dispatcher->admin_verifier, record.payload, sizeof(dispatcher->admin_verifier));
+        if (record.schema_version == GS232B_PERSISTENCE_SCHEMA_ADMIN &&
+            record.payload_size == GS232B_ADMIN_CREDENTIAL_SIZE) {
+            memcpy(dispatcher->admin_salt, record.payload, sizeof(dispatcher->admin_salt));
+            memcpy(dispatcher->admin_verifier, record.payload + sizeof(dispatcher->admin_salt),
+                sizeof(dispatcher->admin_verifier));
+        } else {
+            return GS232B_ERROR_CORRUPT;
+        }
         dispatcher->admin_revision = record.revision;
         dispatcher->admin_enabled = true;
     } else if (error != GS232B_ERROR_NOT_FOUND) return error;
     const gs232b_extension_handler_t handlers[] = {
-        {.domain = "ADMIN", .action = "ENABLE", .check = check, .handle = handle, .ctx = dispatcher},
+        {.domain = "ADMIN", .action = "SET", .schema = &set_schema,
+         .check = check, .handle = handle, .ctx = dispatcher},
         {.domain = "ADMIN", .action = "DISABLE", .check = check, .handle = handle, .ctx = dispatcher},
         {.domain = "SESSION", .action = "AUTH", .schema = &auth_schema,
          .check = check, .handle = handle, .ctx = dispatcher}

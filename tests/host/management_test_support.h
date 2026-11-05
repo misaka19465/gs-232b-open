@@ -68,18 +68,13 @@ static inline bool management_command(gs_fixture_t *fixture, size_t session,
     return true;
 }
 
-static inline bool management_enable(gs_fixture_t *fixture, char token[65])
+static inline bool management_set_password(gs_fixture_t *fixture, const char *password)
 {
-    char bytes[GS232B_EXTENSION_RESPONSE_MAX_BYTES + 1U];
-    CHECK(management_reply(fixture, 0, "!ADMIN ENABLE\r", GS232B_OK, bytes));
-    gs232b_json_value_t response, data, value;
-    CHECK(gs232b_json_parse((gs232b_byte_span_t){(uint8_t *)bytes + 1, strlen(bytes) - 3U}, &response) == GS232B_OK);
-    CHECK(gs232b_json_get(response, "data", &data) == GS232B_OK);
-    CHECK(gs232b_json_get(data, "token", &value) == GS232B_OK);
-    size_t size = 0;
-    CHECK(gs232b_json_string_decode(value, (uint8_t *)token, 64, &size) == GS232B_OK && size == 64);
-    token[size] = '\0';
-    return true;
+    char command[160], bytes[GS232B_EXTENSION_RESPONSE_MAX_BYTES + 1U];
+    snprintf(command, sizeof(command), "!ADMIN SET {\"password\":\"%s\"}\r", password);
+    CHECK(management_reply(fixture, 0, command, GS232B_OK, bytes));
+    CHECK(strstr(bytes, password) == NULL);
+    return strstr(bytes, "\"enabled\":true") != NULL;
 }
 
 static inline bool gs_reopen_management(gs_fixture_t *fixture, size_t index,
@@ -93,11 +88,11 @@ static inline bool gs_reopen_management(gs_fixture_t *fixture, size_t index,
     return gs_expect(fixture, index, "Connect OK\r\n");
 }
 
-static inline bool management_auth(gs_fixture_t *fixture, size_t session, const char *token,
+static inline bool management_auth(gs_fixture_t *fixture, size_t session, const char *password,
     gs232b_error_t expected)
 {
-    char command[128];
-    snprintf(command, sizeof(command), "!SESSION AUTH {\"token\":\"%s\"}\r", token);
+    char command[160];
+    snprintf(command, sizeof(command), "!SESSION AUTH {\"password\":\"%s\"}\r", password);
     return management_command(fixture, session, command, expected, NULL);
 }
 

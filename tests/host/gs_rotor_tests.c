@@ -61,13 +61,13 @@ static bool permissions_and_revalidation(void)
 {
     gs_fixture_t f;
     CHECK(gs_init(&f, true));
-    char token[65];
-    CHECK(management_enable(&f, token));
+    const char *password = "rotor-admin-password";
+    CHECK(management_set_password(&f, password));
     for (size_t session = 1; session <= 2; ++session) {
         CHECK(management_command(&f, session, "!ROTOR GET\r", GS232B_OK, NULL));
         CHECK(management_command(&f, session, "!ROTOR SET {\"model_id\":5}\r", GS232B_ERROR_NOT_AUTHORIZED, NULL));
         CHECK(gs_reopen_management(&f, session, (gs232b_transport_t)session));
-        CHECK(management_auth(&f, session, token, GS232B_OK));
+        CHECK(management_auth(&f, session, password, GS232B_OK));
         CHECK(management_command(&f, session, "!ROTOR SET {\"model_id\":5}\r", GS232B_OK, NULL));
         CHECK(management_command(&f, 0, "!ROTOR SET {\"model_id\":1}\r", GS232B_OK, NULL));
     }
@@ -90,8 +90,8 @@ static bool busy_and_side_effect_fencing(void)
     for (unsigned mode = 0; mode < 6; ++mode) {
         gs_fixture_t f;
         CHECK(gs_init(&f, true));
-        char token[65];
-        CHECK(management_enable(&f, token) && management_auth(&f, 1, token, GS232B_OK));
+        const char *password = "rotor-admin-password";
+        CHECK(management_set_password(&f, password) && management_auth(&f, 1, password, GS232B_OK));
         if (mode == 0) CHECK(gs_run(&f, 0, "R\r", "\r"));
         else if (mode == 1 || mode == 2) {
             CHECK(gs_run(&f, 0, "M001 090 180\r", "\r"));
@@ -129,8 +129,8 @@ static bool queued_motion_and_stop_recheck(void)
 {
     gs_fixture_t f;
     CHECK(gs_init(&f, true));
-    char token[65];
-    CHECK(management_enable(&f, token) && management_auth(&f, 1, token, GS232B_OK));
+    const char *password = "rotor-admin-password";
+    CHECK(management_set_password(&f, password) && management_auth(&f, 1, password, GS232B_OK));
     CHECK(gs_feed(&f, 0, "R\r") == GS232B_OK);
     CHECK(gs_feed(&f, 1, "!ROTOR SET {\"model_id\":5}\r") == GS232B_OK);
     CHECK(gs232b_dispatcher_tick(&f.dispatcher) == GS232B_OK);

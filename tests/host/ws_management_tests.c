@@ -64,10 +64,11 @@ static bool extension_command(ws_fixture_t *fixture, int fd, const char *line,
     return true;
 }
 
-static bool management_token(ws_fixture_t *fixture, char token[65])
+static bool set_admin_password(ws_fixture_t *fixture)
 {
     gs232b_extension_request_t request;
-    CHECK(gs232b_extension_parse((const uint8_t *)"!ADMIN ENABLE", 13, &request) == GS232B_OK);
+    const char command[] = "!ADMIN SET {\"password\":\"lan-admin-password\"}";
+    CHECK(gs232b_extension_parse((const uint8_t *)command, sizeof(command) - 1U, &request) == GS232B_OK);
     request.transport = GS232B_TRANSPORT_UART1;
     uint8_t data[GS232B_EXTENSION_DATA_MAX_BYTES];
     gs232b_extension_response_t response;
@@ -75,11 +76,8 @@ static bool management_token(ws_fixture_t *fixture, char token[65])
         sizeof(data), &response) == GS232B_OK);
     gs232b_json_value_t root, value;
     CHECK(gs232b_json_parse(response.data, &root) == GS232B_OK);
-    CHECK(gs232b_json_get(root, "token", &value) == GS232B_OK);
-    size_t token_size = 0;
-    CHECK(gs232b_json_string_decode(value, (uint8_t *)token, 64, &token_size) == GS232B_OK && token_size == 64);
-    token[64] = '\0';
-    return true;
+    CHECK(gs232b_json_get(root, "enabled", &value) == GS232B_OK);
+    return value.type == GS232B_JSON_BOOL && value.raw.size == 4U;
 }
 
 static bool ap_uri_and_command_boundaries(void)
@@ -111,7 +109,8 @@ static bool ap_uri_and_command_boundaries(void)
     }
     static const char *const forbidden[] = {
         "!OWNER GET\r", "!OWNER TAKE\r", "!OWNER RELEASE\r", "!MOTION STATUS\r", "!FAULT CLEAR\r",
-        "!SESSION WATCHDOG {\"timeout_ms\":1000}\r", "!SESSION PING\r", "!ADMIN ENABLE\r",
+        "!SESSION WATCHDOG {\"timeout_ms\":1000}\r", "!SESSION PING\r",
+        "!ADMIN SET {\"password\":\"blocked-admin-password\"}\r",
         "!NET RESET {\"confirm\":\"NETWORK_ONLY\"}\r", "!PROV START\r"
     };
     for (size_t i = 0; i < sizeof(forbidden) / sizeof(forbidden[0]); ++i) {
@@ -148,9 +147,10 @@ static bool ethernet_management_extensions_and_control_separation(void)
     CHECK(extension_command(&f, 0, "!OWNER RELEASE\r", GS232B_OK));
     CHECK(extension_command(&f, 0, "!MOTION STATUS\r", GS232B_OK));
     CHECK(extension_command(&f, 0, "!CFG BEGIN\r", GS232B_ERROR_NOT_AUTHORIZED));
-    char token[65], command[128];
-    CHECK(management_token(&f, token));
-    snprintf(command, sizeof(command), "!SESSION AUTH {\"token\":\"%s\"}\r", token);
+    const char *password = "lan-admin-password";
+    char command[160];
+    CHECK(set_admin_password(&f));
+    snprintf(command, sizeof(command), "!SESSION AUTH {\"password\":\"%s\"}\r", password);
     CHECK(extension_command(&f, 0, command, GS232B_OK));
     CHECK(extension_command(&f, 0, "!CFG BEGIN\r", GS232B_OK));
     CHECK(fake_ws_frame(0, HTTPD_WS_TYPE_TEXT, true, "R\r", 2) == ESP_OK);

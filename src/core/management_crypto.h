@@ -21,12 +21,14 @@
 #define GS232B_MANAGEMENT_CRYPTO_H
 
 #include "gs232b/types.h"
+#include "gs232b/persistence.h"
 #include <stddef.h>
 
-/** @brief 使用平台 CSPRNG 生成 256bit token（64 个十六进制字符及 NUL）。 */
-gs232b_error_t gs232b_management_token(char token[65]);
-/** @brief 使用平台 SHA-256 计算 token 校验材料，失败时拒绝认证。 */
-gs232b_error_t gs232b_management_digest(const uint8_t *bytes, size_t size, uint8_t digest[32]);
+/** @brief 使用平台 CSPRNG 生成随机盐或其他短期随机材料。 */
+gs232b_error_t gs232b_management_random(uint8_t *bytes, size_t size);
+/** @brief 使用 20000 轮 PBKDF2-HMAC-SHA-256 派生管理口令校验值。 */
+gs232b_error_t gs232b_management_derive_password(const uint8_t *password, size_t password_size,
+    const uint8_t salt[GS232B_ADMIN_SALT_SIZE], uint8_t verifier[GS232B_ADMIN_VERIFIER_SIZE]);
 /** @brief 清除临时凭据，禁止优化器省略擦除。 */
 void gs232b_management_clear(void *bytes, size_t size);
 /** @brief 返回实际固件构建版本；宿主测试使用独立标识。 */
